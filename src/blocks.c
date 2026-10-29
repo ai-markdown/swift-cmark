@@ -256,7 +256,7 @@ static void add_line(cmark_node *node, cmark_chunk *ch, cmark_parser *parser) {
       cmark_strbuf_putc(&node->content, ' ');
     }
   }
-  if ((parser->options & (CMARK_OPT_MATH | CMARK_OPT_REFERENCE_DEFINITIONS | CMARK_OPT_WEB_CHARACTER_REFERENCES | CMARK_OPT_CODE_METADATA)) &&
+  if ((parser->options & (CMARK_OPT_MATH | CMARK_OPT_REFERENCE_DEFINITIONS | CMARK_OPT_WEB_CHARACTER_REFERENCES | CMARK_OPT_CODE_METADATA | CMARK_OPT_SOFTBREAK_METADATA)) &&
       (node->type == CMARK_NODE_PARAGRAPH || node->type == CMARK_NODE_HEADING)) {
     if (node->math_line_count == node->math_line_capacity) {
       node->math_line_capacity = node->math_line_capacity ? node->math_line_capacity * 2 : 8;

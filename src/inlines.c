@@ -1863,7 +1863,7 @@ match:
 
 // Parse a hard or soft linebreak, returning an inline.
 // Assumes the subject has a cr or newline at the current position.
-static cmark_node *handle_newline(subject *subj) {
+static cmark_node *handle_newline(subject *subj, int options) {
   bufsize_t nlpos = subj->pos;
   // skip over cr, crlf, or lf:
   if (peek_at(subj, subj->pos) == '\r') {
@@ -1880,7 +1880,15 @@ static cmark_node *handle_newline(subject *subj) {
       peek_at(subj, nlpos - 2) == ' ') {
     return make_linebreak(subj->mem);
   } else {
-    return make_softbreak(subj->mem);
+    cmark_node *node = make_softbreak(subj->mem);
+    if (options & CMARK_OPT_SOFTBREAK_METADATA) {
+      /* nlpos is this event's consumed inline-subject EOL. Its row was captured
+       * by add_line before line-ending normalization, including cross-feed CRLF.
+       * No source search, parent range or inferred prefix supplies this value. */
+      const cmark_math_line *row = math_line_at(subj, nlpos);
+      if (row) node->softbreak_ending = row->ending;
+    }
+    return node;
   }
 }
 
@@ -2000,7 +2008,7 @@ static int parse_inline(cmark_parser *parser, subject *subj, cmark_node *parent,
       advance(subj);
       new_inl = make_str(subj, subj->pos - 1, subj->pos - 1, cmark_chunk_dup(&subj->input, subj->pos - 1, 1));
     } else {
-      new_inl = handle_newline(subj);
+      new_inl = handle_newline(subj, options);
     }
     break;
   case '$':

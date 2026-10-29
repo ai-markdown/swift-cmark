@@ -830,6 +830,10 @@ char *cmark_render_latex_with_mem(cmark_node *root, int options, int width, cmar
 /** Opt-in Web code delimiter lengths without the legacy 80/255 limits. */
 #define CMARK_OPT_WEB_CODE_SYNTAX (1 << 30)
 
+/** Capture physical endings on actual soft-break parser events; display is unchanged. */
+enum { CMARK_OPT_SOFTBREAK_METADATA = -2147483647 - 1 };
+CMARK_GFM_EXPORT int cmark_node_get_softbreak_ending(cmark_node *node);
+
 CMARK_GFM_EXPORT int cmark_node_get_code_metadata_kind(cmark_node *node);
 CMARK_GFM_EXPORT const char *cmark_node_get_code_metadata_value(cmark_node *node);
 CMARK_GFM_EXPORT const char *cmark_node_get_code_metadata_info(cmark_node *node);

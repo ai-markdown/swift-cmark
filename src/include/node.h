@@ -92,6 +92,7 @@ typedef struct {
 } cmark_code_metadata;
 
 struct cmark_node {
+  int softbreak_ending; /* 0 absent, 10 LF, 13 CR, 0x0d0a CRLF; parser event evidence. */
   cmark_code_metadata *code_metadata;
   struct cmark_syntax_extension *task_extension;
   int task_content_line;

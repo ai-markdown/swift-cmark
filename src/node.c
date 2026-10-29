@@ -169,6 +169,10 @@ cmark_node *cmark_node_new_with_mem(cmark_node_type type, cmark_mem *mem)
   return cmark_node_new_with_mem_and_ext(type, mem, NULL);
 }
 
+int cmark_node_get_softbreak_ending(cmark_node *node) {
+  return node && node->type == CMARK_NODE_SOFTBREAK ? node->softbreak_ending : 0;
+}
+
 cmark_node *cmark_node_new(cmark_node_type type) {
   return cmark_node_new_with_ext(type, NULL);
 }
@@ -183,6 +187,7 @@ static void clear_reference_usage(cmark_node *node) {
 }
 
 static void free_node_as(cmark_node *node) {
+  node->softbreak_ending = 0;
   clear_reference_usage(node);
   if (node->reference_definition) {
     cmark_reference_definition *def = node->reference_definition;
