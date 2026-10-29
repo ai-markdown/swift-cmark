@@ -22,6 +22,7 @@
 #include "scanners.h"
 #include "inlines.h"
 #include "houdini.h"
+#include "string_token.h"
 #include "buffer.h"
 #include "footnotes.h"
 
@@ -465,18 +466,7 @@ static cmark_node *finalize(cmark_parser *parser, cmark_node *b) {
     // math meta is not trimmed by mdast-util-math.
     for (pos = 0; pos < node_content->size && !S_is_line_end_char(node_content->ptr[pos]); pos++) {}
     cmark_strbuf meta = CMARK_BUF_INIT(parser->mem);
-    // String-token semantics: decode source escapes/entities left to right.
-    // An entity-generated backslash must not escape a later source character.
-    for (bufsize_t i = 0; i < pos; i++) {
-      unsigned char c = node_content->ptr[i];
-      if (c == '\\' && i + 1 < pos && cmark_ispunct(node_content->ptr[i + 1])) {
-        cmark_strbuf_putc(&meta, node_content->ptr[++i]);
-      } else if (c == '&') {
-        bufsize_t consumed = houdini_unescape_ent(&meta, node_content->ptr + i + 1, pos - i - 1);
-        if (consumed) i += consumed;
-        else cmark_strbuf_putc(&meta, c);
-      } else cmark_strbuf_putc(&meta, c);
-    }
+    cmark_decode_string_token(&meta, node_content->ptr, pos);
     b->as.code.info = cmark_chunk_buf_detach(&meta);
     if (pos < node_content->size && node_content->ptr[pos] == '\r') pos++;
     if (pos < node_content->size && node_content->ptr[pos] == '\n') pos++;
