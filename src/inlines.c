@@ -1626,6 +1626,22 @@ static int parse_inline(cmark_parser *parser, subject *subj, cmark_node *parent,
   if (c == 0) {
     return 0;
   }
+  // Web literal emails may start with punctuation owned by builtin parsers.
+  // These characters must not be registered as extension delimiters: doing so
+  // would redirect emphasis resolution to an extension without an insert hook.
+  if (c == '_' || c == '-' || c == '.') {
+    for (cmark_llist *item = parser->inline_syntax_extensions; item; item = item->next) {
+      cmark_syntax_extension *extension = (cmark_syntax_extension *)item->data;
+      if (strcmp(extension->name, "web_autolink") == 0) {
+        new_inl = extension->match_inline(extension, parser, parent, c, subj);
+        if (new_inl) {
+          cmark_node_append_child(parent, new_inl);
+          return 1;
+        }
+        break;
+      }
+    }
+  }
   switch (c) {
   case '\r':
   case '\n':
