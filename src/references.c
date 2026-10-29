@@ -32,8 +32,8 @@ void cmark_reference_create(cmark_map *map, cmark_chunk *label,
   ref = (cmark_reference *)map->mem->calloc(1, sizeof(*ref));
   ref->entry.label = reflabel;
   ref->is_attributes_reference = false;
-  ref->url = cmark_clean_url(map->mem, url);
-  ref->title = cmark_clean_title(map->mem, title);
+  ref->url = map->web_character_references ? cmark_clean_url_web(map->mem, url) : cmark_clean_url(map->mem, url);
+  ref->title = map->web_character_references ? cmark_clean_title_web(map->mem, title) : cmark_clean_title(map->mem, title);
   ref->attributes = cmark_chunk_literal("");
   ref->entry.age = map->size;
   ref->entry.next = map->refs;

@@ -84,6 +84,8 @@ typedef struct {
 } cmark_reference_usage;
 
 struct cmark_node {
+  struct cmark_syntax_extension *task_extension;
+  int task_content_line;
   int reference_visual_column;
   bufsize_t reference_cached_offset;
   int reference_cached_column, reference_cached_line;

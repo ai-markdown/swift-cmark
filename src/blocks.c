@@ -151,6 +151,7 @@ static void cmark_parser_reset(cmark_parser *parser) {
   if (saved_options & CMARK_OPT_REFERENCE_USAGES) saved_options |= CMARK_OPT_REFERENCE_DEFINITIONS;
   parser->refmap = cmark_reference_map_new(parser->mem);
   parser->refmap->web_reference_labels = (saved_options & CMARK_OPT_REFERENCE_USAGES) != 0;
+  parser->refmap->web_character_references = (saved_options & CMARK_OPT_WEB_CHARACTER_REFERENCES) != 0;
   parser->root = document;
   parser->current = document;
 
@@ -252,7 +253,7 @@ static void add_line(cmark_node *node, cmark_chunk *ch, cmark_parser *parser) {
       cmark_strbuf_putc(&node->content, ' ');
     }
   }
-  if ((parser->options & (CMARK_OPT_MATH | CMARK_OPT_REFERENCE_DEFINITIONS)) &&
+  if ((parser->options & (CMARK_OPT_MATH | CMARK_OPT_REFERENCE_DEFINITIONS | CMARK_OPT_WEB_CHARACTER_REFERENCES)) &&
       (node->type == CMARK_NODE_PARAGRAPH || node->type == CMARK_NODE_HEADING)) {
     if (node->math_line_count == node->math_line_capacity) {
       node->math_line_capacity = node->math_line_capacity ? node->math_line_capacity * 2 : 8;
@@ -500,9 +501,16 @@ static cmark_node *finalize(cmark_parser *parser, cmark_node *b) {
       assert(pos < node_content->size);
 
       cmark_strbuf tmp = CMARK_BUF_INIT(parser->mem);
-      houdini_unescape_html_f(&tmp, node_content->ptr, pos);
-      cmark_strbuf_trim(&tmp);
-      cmark_strbuf_unescape(&tmp);
+      if (parser->options & CMARK_OPT_WEB_CHARACTER_REFERENCES) {
+        bufsize_t start = 0, end = pos;
+        while (start < end && (node_content->ptr[start] == ' ' || node_content->ptr[start] == '\t')) start++;
+        while (end > start && (node_content->ptr[end - 1] == ' ' || node_content->ptr[end - 1] == '\t')) end--;
+        cmark_decode_string_token(&tmp, node_content->ptr + start, end - start);
+      } else {
+        houdini_unescape_html_f(&tmp, node_content->ptr, pos);
+        cmark_strbuf_trim(&tmp);
+        cmark_strbuf_unescape(&tmp);
+      }
       b->as.code.info = cmark_chunk_buf_detach(&tmp);
 
       if (node_content->ptr[pos] == '\r')

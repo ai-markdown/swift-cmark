@@ -84,15 +84,16 @@ static cmark_node *open_tasklist_item(cmark_syntax_extension *self,
     return NULL;
   }
 
-  bufsize_t matched = scan_tasklist(input, len, 0);
-  if (!matched) {
+  bool web_mode = (parser->options & (CMARK_OPT_REFERENCE_DEFINITIONS | CMARK_OPT_REFERENCE_USAGES | CMARK_OPT_WEB_CHARACTER_REFERENCES)) != 0;
+  if (web_mode) {
+    // The full first paragraph is needed to distinguish EOL from paragraph EOF.
+    // Do not strip a checkbox before flow definitions have been recognized.
+    if (!indented && !parent_container->first_child) parent_container->task_extension = self;
     return NULL;
   }
-
+  if (!scan_tasklist(input, len, 0)) return NULL;
   cmark_node_set_syntax_extension(parent_container, self);
   cmark_parser_advance_offset(parser, (char *)input, 3, false);
-
-  // Either an upper or lower case X means the task is completed.
   parent_container->as.list.checked = (strstr((char*)input, "[x]") || strstr((char*)input, "[X]"));
 
   return NULL;

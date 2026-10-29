@@ -822,6 +822,8 @@ char *cmark_render_latex_with_mem(cmark_node *root, int options, int width, cmar
 #define CMARK_OPT_REFERENCE_DEFINITIONS (1 << 26)
 /** Preserve actual reference usage identity; implies REFERENCE_DEFINITIONS. */
 #define CMARK_OPT_REFERENCE_USAGES (1 << 27)
+/** Match Web inline character references without changing code or TeX bodies. */
+#define CMARK_OPT_WEB_CHARACTER_REFERENCES (1 << 28)
 
 CMARK_GFM_EXPORT const char *cmark_node_get_reference_label(cmark_node *node);
 CMARK_GFM_EXPORT const char *cmark_node_get_reference_identifier_source(cmark_node *node);

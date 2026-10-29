@@ -27,6 +27,7 @@ typedef void (*cmark_map_free_f)(struct cmark_map *, cmark_map_entry *);
 struct cmark_map {
   cmark_mem *mem;
   bool web_reference_labels;
+  bool web_character_references;
   cmark_map_entry *refs;
   cmark_map_entry **sorted;
   size_t size;

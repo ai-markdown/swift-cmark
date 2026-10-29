@@ -194,14 +194,19 @@ static cmark_chunk cmark_clean_autolink(cmark_mem *mem, cmark_chunk *url,
 
 static inline cmark_node *make_autolink(subject *subj, int start_column,
                                         int end_column, cmark_chunk url,
-                                        int is_email) {
+                                        int is_email, bool web_tokens) {
   cmark_node *link = make_simple(subj->mem, CMARK_NODE_LINK);
-  link->as.link.url = cmark_clean_autolink(subj->mem, &url, is_email);
+  if (web_tokens) {
+    cmark_strbuf value = CMARK_BUF_INIT(subj->mem);
+    if (is_email) cmark_strbuf_puts(&value, "mailto:");
+    cmark_strbuf_put(&value, url.data, url.len);
+    link->as.link.url = cmark_chunk_buf_detach(&value);
+  } else link->as.link.url = cmark_clean_autolink(subj->mem, &url, is_email);
   link->as.link.title = cmark_chunk_literal("");
   link->start_line = link->end_line = subj->line;
   link->start_column = start_column + 1 + subj->column_offset + subj->block_offset;
   link->end_column = end_column + 1 + subj->column_offset + subj->block_offset;
-  append_child(link, make_str_with_entities(subj, start_column + 1, end_column - 1, &url));
+  append_child(link, web_tokens ? make_str(subj, start_column + 1, end_column - 1, url) : make_str_with_entities(subj, start_column + 1, end_column - 1, &url));
   return link;
 }
 
@@ -1029,10 +1034,16 @@ static cmark_node *handle_backslash(cmark_parser *parser, subject *subj) {
 
 // Parse an entity or a regular "&" string.
 // Assumes the subject has an '&' character at the current position.
-static cmark_node *handle_entity(subject *subj, bool reference_tokens) {
+static cmark_node *handle_entity(subject *subj, bool reference_tokens, bool web_tokens) {
   cmark_strbuf ent = CMARK_BUF_INIT(subj->mem);
   bufsize_t len;
 
+  if (web_tokens) {
+    bufsize_t start = subj->pos;
+    len = cmark_decode_string_token_part(&ent, subj->input.data + start, subj->input.len - start);
+    subj->pos += len;
+    return make_str(subj, start, subj->pos - 1, cmark_chunk_buf_detach(&ent));
+  }
   advance(subj);
 
   len = houdini_unescape_ent(&ent, subj->input.data + subj->pos,
@@ -1097,6 +1108,17 @@ cmark_chunk cmark_clean_title(cmark_mem *mem, cmark_chunk *title) {
   return cmark_chunk_buf_detach(&buf);
 }
 
+cmark_chunk cmark_clean_url_web(cmark_mem *mem, cmark_chunk *url) {
+  cmark_strbuf out = CMARK_BUF_INIT(mem);
+  cmark_decode_string_token(&out, url->data, url->len);
+  return cmark_chunk_buf_detach(&out);
+}
+cmark_chunk cmark_clean_title_web(cmark_mem *mem, cmark_chunk *title) {
+  cmark_strbuf out = CMARK_BUF_INIT(mem);
+  if (title->len >= 2) cmark_decode_string_token(&out, title->data + 1, title->len - 2);
+  return cmark_chunk_buf_detach(&out);
+}
+
 // Clean custom attributes. This function uses `cmark_clean_url` internaly
 // because the requirements are the same
 cmark_chunk cmark_clean_attributes(cmark_mem *mem, cmark_chunk *attributes) {
@@ -1117,7 +1139,7 @@ static cmark_node *handle_pointy_brace(subject *subj, int options) {
     contents = cmark_chunk_dup(&subj->input, subj->pos, matchlen - 1);
     subj->pos += matchlen;
 
-    return make_autolink(subj, subj->pos - 1 - matchlen, subj->pos - 1, contents, 0);
+    return make_autolink(subj, subj->pos - 1 - matchlen, subj->pos - 1, contents, 0, (options & CMARK_OPT_WEB_CHARACTER_REFERENCES) != 0);
   }
 
   // next try to match an email autolink
@@ -1126,7 +1148,7 @@ static cmark_node *handle_pointy_brace(subject *subj, int options) {
     contents = cmark_chunk_dup(&subj->input, subj->pos, matchlen - 1);
     subj->pos += matchlen;
 
-    return make_autolink(subj, subj->pos - 1 - matchlen, subj->pos - 1, contents, 1);
+    return make_autolink(subj, subj->pos - 1 - matchlen, subj->pos - 1, contents, 1, (options & CMARK_OPT_WEB_CHARACTER_REFERENCES) != 0);
   }
 
   // finally, try to match an html tag
@@ -1512,8 +1534,13 @@ static cmark_node *handle_close_bracket(cmark_parser *parser, subject *subj) {
 
       title_chunk =
           cmark_chunk_dup(&subj->input, starttitle, endtitle - starttitle);
-      url = cmark_clean_url(subj->mem, &url_chunk);
-      title = cmark_clean_title(subj->mem, &title_chunk);
+      if (parser->options & CMARK_OPT_WEB_CHARACTER_REFERENCES) {
+        url = reference_string(subj->mem, subj->math_parent, (bufsize_t)(url_chunk.data - subj->input.data), url_chunk.data, url_chunk.len, true, false);
+        title = title_chunk.len >= 2 ? reference_string(subj->mem, subj->math_parent, starttitle + 1, title_chunk.data + 1, title_chunk.len - 2, true, true) : cmark_chunk_literal("");
+      } else {
+        url = cmark_clean_url(subj->mem, &url_chunk);
+        title = cmark_clean_title(subj->mem, &title_chunk);
+      }
       cmark_chunk_free(subj->mem, &url_chunk);
       cmark_chunk_free(subj->mem, &title_chunk);
       goto match;
@@ -1913,7 +1940,7 @@ static int parse_inline(cmark_parser *parser, subject *subj, cmark_node *parent,
     new_inl = handle_backslash(parser, subj);
     break;
   case '&':
-    new_inl = handle_entity(subj, (options & CMARK_OPT_REFERENCE_USAGES) != 0);
+    new_inl = handle_entity(subj, (options & CMARK_OPT_REFERENCE_USAGES) != 0, (options & CMARK_OPT_WEB_CHARACTER_REFERENCES) != 0);
     break;
   case '<':
     new_inl = handle_pointy_brace(subj, options);
@@ -1990,6 +2017,37 @@ static int parse_inline(cmark_parser *parser, subject *subj, cmark_node *parent,
   return 1;
 }
 
+// Parse the actual GFM task marker on a complete first paragraph. This avoids
+// promoting checkbox body text to a definition and handles byte-feed EOF safely.
+static bool web_task_marker(subject *subj, cmark_node *parent, bufsize_t *body) {
+  cmark_node *item = parent->parent;
+  if (parent->type != CMARK_NODE_PARAGRAPH || !item || item->type != CMARK_NODE_ITEM ||
+      item->first_child != parent || !item->task_extension || subj->input.len < 4 || subj->input.data[0] != '[') return false;
+  const unsigned char *data = subj->input.data;
+  bool unchecked = data[1] == ' ' || data[1] == '\n' || data[1] == '\r';
+  if (data[1] == '\t') {
+    const cmark_math_line *row = math_line_at(subj, 0);
+    int column = row ? row->visual_column : parent->start_column;
+    unchecked = (column + 1) % 4 == 0;
+  }
+  if (!(unchecked || data[1] == 'x' || data[1] == 'X') || data[2] != ']') return false;
+  if (!(data[3] == ' ' || data[3] == '\t' || data[3] == '\n' || data[3] == '\r')) return false;
+  // input has already dropped paragraph-ending whitespace, so anything here
+  // after the marker has real paragraph content after the required whitespace.
+  cmark_node_set_syntax_extension(item, item->task_extension);
+  item->as.list.checked = data[1] == 'x' || data[1] == 'X';
+  item->task_content_line = parent->start_line;
+  parent->definition.no_reference = true;
+  subj->pos = 4;
+  int line = subj->line, column = subj->block_offset + 5;
+  math_source_point(subj, subj->pos, &line, &column);
+  subj->line = line;
+  subj->column_offset = column - 1 - subj->pos - subj->block_offset;
+  if (data[3] == '\n' || data[3] == '\r') skip_spaces(subj);
+  *body = subj->pos;
+  return true;
+}
+
 // Parse inlines from parent's string_content, adding as children of parent.
 void cmark_parse_inlines(cmark_parser *parser,
                          cmark_node *parent,
@@ -2002,11 +2060,17 @@ void cmark_parse_inlines(cmark_parser *parser,
   if ((options & CMARK_OPT_PRESERVE_WHITESPACE) == 0)
     cmark_chunk_rtrim(&subj.input);
 
+  bufsize_t task_body = 0;
+  bool task = web_task_marker(&subj, parent, &task_body);
+
   while (!is_eof(&subj) && parse_inline(parser, &subj, parent, options))
     ;
 
   subj.mem->free(subj.math_last);
   process_emphasis(parser, &subj, 0);
+  if (task && parent->first_child && parent->first_child->type == CMARK_NODE_TEXT) {
+    math_source_point(&subj, task_body, &parent->start_line, &parent->start_column);
+  }
   // free bracket and delim stack
   while (subj.last_delim) {
     remove_delimiter(&subj, subj.last_delim);
