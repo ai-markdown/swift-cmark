@@ -24,6 +24,7 @@ add_library(libcmark-gfm
   map.c
   node.c
   code_metadata.c
+  list_spread.c
   string_token.c
   plaintext.c
   plugin.c

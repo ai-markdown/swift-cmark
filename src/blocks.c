@@ -123,6 +123,7 @@ int cmark_parser_attach_syntax_extension(cmark_parser *parser,
 }
 
 static void cmark_parser_dispose(cmark_parser *parser) {
+  cmark_list_spread_free(parser);
   if (parser->root)
     cmark_node_free(parser->root);
 
@@ -464,6 +465,7 @@ static cmark_node *finalize(cmark_parser *parser, cmark_node *b) {
   assert(b->flags &
          CMARK_NODE__OPEN); // shouldn't call finalize on closed blocks
   b->flags &= ~CMARK_NODE__OPEN;
+  cmark_list_spread_close(parser, b);
 
   if (S_type(b) == CMARK_NODE_FOOTNOTE_DEFINITION &&
       (parser->options & CMARK_OPT_FOOTNOTES_LOSSLESS)) {
@@ -1269,6 +1271,7 @@ static bool parse_code_block_prefix(cmark_parser *parser, cmark_chunk *input,
       *should_continue = false;
       S_advance_offset(parser, input, matched, false);
       if (container->code_metadata) container->code_metadata->closed = true;
+      cmark_list_spread_leaf(parser, container, true);
       parser->current = finalize(parser, container);
     } else {
       // skip opt. spaces of fence parser->offset
@@ -1303,6 +1306,7 @@ static bool parse_math_prefix(cmark_parser *parser, cmark_chunk *input,
   if (matched >= container->math_fence_length && matched > 0) {
     container->math_closing_fence = true; // finalize this line, not the previous line
     *should_continue = false;
+    cmark_list_spread_leaf(parser, container, true);
     S_advance_offset(parser, input, parser->first_nonspace + matched - parser->offset, false);
     parser->current = finalize(parser, container);
     return false;
@@ -1392,8 +1396,10 @@ static cmark_node *check_open_blocks(cmark_parser *parser, cmark_chunk *input,
     case CMARK_NODE_BLOCK_QUOTE:
       if (!parse_block_quote_prefix(parser, input))
         goto done;
+      cmark_list_spread_prefix(parser, container);
       break;
     case CMARK_NODE_DEFINITION_DESCRIPTION:
+      cmark_list_spread_unsupported(parser);
       if (parser->blank) {
         container->definition.blank_lines++;
         S_advance_offset(parser, input, MIN(parser->indent, container->definition.padding), true);
@@ -1437,7 +1443,14 @@ static cmark_node *check_open_blocks(cmark_parser *parser, cmark_chunk *input,
       }
       break;
 		case CMARK_NODE_FOOTNOTE_DEFINITION:
+      /* Web emits a footnote indent token only on non-blank continuation lines. */
+      if (!parser->blank && parser->indent >= 4)
+        cmark_list_spread_prefix(parser, container);
       if (!parse_footnote_definition_block_prefix(parser, input, container)) {
+        /* Web continues footnote definitions across every blank line; this
+         * parser closes them on whitespace-only or CR blank lines. */
+        if (parser->blank)
+          cmark_list_spread_unsupported(parser);
         if (parser->options & CMARK_OPT_CODE_METADATA) {
           for (cmark_node *open = parser->current; open && open != container; open = open->parent)
             if (open->code_metadata && open->code_metadata->kind == 1) open->code_metadata->boundary_trim = true;
@@ -1497,6 +1510,7 @@ static void open_new_blocks(cmark_parser *parser, cmark_node **container,
       }
       *container = add_child(parser, *container, CMARK_NODE_BLOCK_QUOTE,
                              blockquote_startpos + 1);
+      cmark_list_spread_open(parser, *container);
 
     } else if (!indented && (matched = scan_atx_heading_start(
                                  input, parser->first_nonspace))) {
@@ -1520,6 +1534,7 @@ static void open_new_blocks(cmark_parser *parser, cmark_node **container,
       (*container)->as.heading.level = level;
       (*container)->as.heading.setext = false;
       (*container)->internal_offset = matched;
+      cmark_list_spread_leaf(parser, *container, false);
 
     } else if (!indented && (parser->options & CMARK_OPT_MATH) &&
                (matched = math_fence(input, parser->first_nonspace, false))) {
@@ -1572,6 +1587,7 @@ static void open_new_blocks(cmark_parser *parser, cmark_node **container,
         (*container)->type = (uint16_t)CMARK_NODE_HEADING;
         (*container)->as.heading.level = lev;
         (*container)->as.heading.setext = true;
+        cmark_list_spread_leaf(parser, *container, false);
         S_advance_offset(parser, input, input->len - 1 - parser->offset, false);
       }
     } else if (!indented &&
@@ -1581,6 +1597,7 @@ static void open_new_blocks(cmark_parser *parser, cmark_node **container,
       // it's only now that we know the line is not part of a setext heading:
       *container = add_child(parser, *container, CMARK_NODE_THEMATIC_BREAK,
                              parser->first_nonspace + 1);
+      cmark_list_spread_leaf(parser, *container, false);
       S_advance_offset(parser, input, input->len - 1 - parser->offset, false);
     } else if (!indented &&
                (parser->options & CMARK_OPT_FOOTNOTES) &&
@@ -1601,6 +1618,7 @@ static void open_new_blocks(cmark_parser *parser, cmark_node **container,
       (*container)->as.literal = c;
 
       (*container)->internal_offset = matched;
+      cmark_list_spread_open(parser, *container);
     } else if ((!indented || cont_type == CMARK_NODE_LIST) &&
 	       parser->indent < 4 &&
                depth < MAX_LIST_DEPTH &&
@@ -1654,11 +1672,13 @@ static void open_new_blocks(cmark_parser *parser, cmark_node **container,
                                parser->first_nonspace + 1);
 
         memcpy(&((*container)->as.list), data, sizeof(*data));
+        cmark_list_spread_open(parser, *container);
       }
 
       // add the list item
       *container = add_child(parser, *container, CMARK_NODE_ITEM,
                              parser->first_nonspace + 1);
+      cmark_list_spread_open(parser, *container);
       /* TODO: static */
       memcpy(&((*container)->as.list), data, sizeof(*data));
       parser->mem->free(data);
@@ -1686,6 +1706,16 @@ static void open_new_blocks(cmark_parser *parser, cmark_node **container,
 
           if (new_container) {
             *container = new_container;
+            if (parser->options & CMARK_OPT_LIST_SPREAD_METADATA) {
+              const char *kind = cmark_node_get_type_string(new_container);
+              if (strcmp(kind, "table") == 0)
+                cmark_list_spread_leaf(parser, new_container, false);
+              else if ((strcmp(kind, "table_row") == 0 || strcmp(kind, "table_header") == 0) &&
+                       new_container->parent)
+                cmark_list_spread_leaf(parser, new_container->parent, false);
+              else if (S_type(new_container) != CMARK_NODE_PARAGRAPH)
+                cmark_list_spread_unsupported(parser);
+            }
             break;
           }
         }
@@ -1754,6 +1784,7 @@ static void add_text_to_container(cmark_parser *parser, cmark_node *container,
       parser->current->definition.lazy_line = parser->line_number;
       parser->current->definition.lazy_column = parser->offset + 1;
     }
+    cmark_list_spread_leaf(parser, parser->current, false);
     add_line(parser->current, input, parser);
   } else { // not a lazy continuation
     // Finalize any blocks that were not matched and set cur to container:
@@ -1763,6 +1794,7 @@ static void add_text_to_container(cmark_parser *parser, cmark_node *container,
     }
 
     if (S_type(container) == CMARK_NODE_CODE_BLOCK || S_type(container) == CMARK_NODE_MATH_BLOCK) {
+      cmark_list_spread_leaf(parser, container, false);
       add_line(container, input, parser);
     } else if (S_type(container) == CMARK_NODE_HTML_BLOCK) {
       add_line(container, input, parser);
@@ -1799,6 +1831,7 @@ static void add_text_to_container(cmark_parser *parser, cmark_node *container,
         break;
       }
 
+      cmark_list_spread_leaf(parser, container, matches_end_condition != 0);
       if (matches_end_condition) {
         container = finalize(parser, container);
         assert(parser->current != NULL);
@@ -1815,6 +1848,7 @@ static void add_text_to_container(cmark_parser *parser, cmark_node *container,
         parser->math_inline_prefix = parser->first_nonspace - parser->offset;
         S_advance_offset(parser, input, parser->first_nonspace - parser->offset, false);
       }
+      cmark_list_spread_leaf(parser, container, false);
       add_line(container, input, parser);
     } else {
       // create paragraph container for line
@@ -1828,6 +1862,7 @@ static void add_text_to_container(cmark_parser *parser, cmark_node *container,
         S_advance_offset(parser, input, parser->first_nonspace - parser->offset,
                            false);
       }
+      cmark_list_spread_leaf(parser, container, false);
       add_line(container, input, parser);
     }
 
@@ -1844,6 +1879,9 @@ static bool S_open_definition(cmark_parser *parser, cmark_chunk *input,
   if (parser->indent >= 4 || peek_at(input, parser->first_nonspace) != ':' ||
       !(S_is_space_or_tab(peek_at(input, parser->first_nonspace + 1)) ||
         S_is_line_end_char(peek_at(input, parser->first_nonspace + 1)))) return false;
+  /* Definition-list markers can restructure surrounding flow in Web parsing;
+   * list spread is not derived for documents containing a marker candidate. */
+  cmark_list_spread_unsupported(parser);
   cmark_node *container = *matched;
   cmark_node *list = NULL;
   cmark_node *term = NULL;
@@ -2058,6 +2096,7 @@ static void S_process_line(cmark_parser *parser, const unsigned char *buffer,
     parser->offset += 3;
 
   parser->line_number++;
+  cmark_list_spread_line(parser);
 
   last_matched_container = check_open_blocks(parser, &input, &all_matched);
 
@@ -2065,7 +2104,10 @@ static void S_process_line(cmark_parser *parser, const unsigned char *buffer,
     goto finished;
 
   parser->definition_line_offset = parser->offset;
-  if (S_open_definition(parser, &input, &last_matched_container)) all_matched = true;
+  if (S_open_definition(parser, &input, &last_matched_container)) {
+    all_matched = true;
+    cmark_list_spread_unsupported(parser);
+  }
   parser->definition_line_offset = parser->offset;
   container = last_matched_container;
 
@@ -2074,6 +2116,9 @@ static void S_process_line(cmark_parser *parser, const unsigned char *buffer,
   // Only open new blocks if we're not limited to inline
   if ((parser->options & CMARK_OPT_INLINE_ONLY) == 0)
     open_new_blocks(parser, &container, &input, all_matched);
+
+  /* Web exits containers after this line's prefixes when input ends there. */
+  cmark_list_spread_prefix_only(parser, input.len - parser->offset <= 1);
 
   /* parser->current might have changed if feed_reentrant was called */
   if (current == parser->current)
@@ -2084,6 +2129,7 @@ static void S_process_line(cmark_parser *parser, const unsigned char *buffer,
     parser->current = finalize(parser, parser->current);
   }
 finished:
+  cmark_list_spread_end_line(parser, parser->math_last_line_ending);
   parser->last_line_length = input.len;
   if (parser->last_line_length &&
       input.data[parser->last_line_length - 1] == '\n')
@@ -2121,6 +2167,7 @@ cmark_node *cmark_parser_finish(cmark_parser *parser) {
     cmark_strbuf_clear(&parser->linebuf);
   }
 
+  cmark_list_spread_eof(parser);
   finalize_document(parser);
 
   cmark_consolidate_text_nodes(parser->root);
@@ -2142,6 +2189,8 @@ cmark_node *cmark_parser_finish(cmark_parser *parser) {
         parser->root = processed;
     }
   }
+
+  cmark_list_spread_finish(parser, parser->root);
 
   res = parser->root;
   parser->root = NULL;

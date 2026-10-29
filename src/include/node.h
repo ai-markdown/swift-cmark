@@ -93,6 +93,8 @@ typedef struct {
 
 struct cmark_node {
   int softbreak_ending; /* 0 absent, 10 LF, 13 CR, 0x0d0a CRLF; parser event evidence. */
+  int list_spread; /* 0 not captured, 1 not spread, 2 spread; list/item parser ledger evidence. */
+  int list_spread_id; /* Parser-local ledger identity; 0 when the node was never recorded. */
   cmark_code_metadata *code_metadata;
   struct cmark_syntax_extension *task_extension;
   int task_content_line;
@@ -228,6 +230,20 @@ void cmark_code_metadata_finish(cmark_node *node);
 void cmark_code_metadata_clear(cmark_node *node);
 void cmark_code_metadata_inline(cmark_node *node, cmark_chunk source);
 void cmark_code_metadata_table(cmark_node *node);
+
+/* List spread ledger hooks; each is a no-op unless CMARK_OPT_LIST_SPREAD_METADATA is set. */
+struct cmark_parser;
+void cmark_list_spread_line(struct cmark_parser *parser);
+void cmark_list_spread_prefix(struct cmark_parser *parser, cmark_node *container);
+void cmark_list_spread_open(struct cmark_parser *parser, cmark_node *container);
+void cmark_list_spread_close(struct cmark_parser *parser, cmark_node *container);
+void cmark_list_spread_leaf(struct cmark_parser *parser, cmark_node *leaf, bool closed);
+void cmark_list_spread_prefix_only(struct cmark_parser *parser, bool prefix_only);
+void cmark_list_spread_end_line(struct cmark_parser *parser, bool has_line_ending);
+void cmark_list_spread_eof(struct cmark_parser *parser);
+void cmark_list_spread_unsupported(struct cmark_parser *parser);
+void cmark_list_spread_finish(struct cmark_parser *parser, cmark_node *root);
+void cmark_list_spread_free(struct cmark_parser *parser);
 
 #ifdef __cplusplus
 }

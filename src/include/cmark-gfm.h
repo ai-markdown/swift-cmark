@@ -834,6 +834,12 @@ char *cmark_render_latex_with_mem(cmark_node *root, int options, int width, cmar
 enum { CMARK_OPT_SOFTBREAK_METADATA = -2147483647 - 1 };
 CMARK_GFM_EXPORT int cmark_node_get_softbreak_ending(cmark_node *node);
 
+/** Derive Web mdast list and list-item spread from a container and line-ending
+ * ledger recorded during block parsing; rendering and list tightness are unchanged. */
+#define CMARK_OPT_LIST_SPREAD_METADATA (1 << 5)
+/** Returns 0 when spread was not captured, 1 when not spread, 2 when spread. */
+CMARK_GFM_EXPORT int cmark_node_get_list_spread(cmark_node *node);
+
 CMARK_GFM_EXPORT int cmark_node_get_code_metadata_kind(cmark_node *node);
 CMARK_GFM_EXPORT const char *cmark_node_get_code_metadata_value(cmark_node *node);
 CMARK_GFM_EXPORT const char *cmark_node_get_code_metadata_info(cmark_node *node);
