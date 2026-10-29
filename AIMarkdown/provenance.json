@@ -1,0 +1,108 @@
+{
+  "sourceRepository": "https://github.com/ai-markdown/ai-markdown-swift.git",
+  "upstreamBaseline": "08ddb528923cc1a6527e02b7a1aee9e516ca749a",
+  "changes": [
+    {
+      "change": "feat(footnotes): preserve definitions and labels in an opt-in lossless AST",
+      "sourceRevision": "42cc391c9d95d6c0b36c7ae1f43e64d57340264d",
+      "patch": "scripts/footnote-probe/lossless.patch",
+      "sha256": "aec15ac5ee1efb00f09a9a68b2b92ae41772a9160e5a5dec13edfeabf40689ff"
+    },
+    {
+      "change": "feat(highlight): parse double-equals delimiters with Web-compatible boundaries",
+      "sourceRevision": "42cc391c9d95d6c0b36c7ae1f43e64d57340264d",
+      "patch": "scripts/highlight-probe/c-highlight.patch",
+      "sha256": "a659b28defd3c589b8a6c7bbea67cc77765e39a7e42e9bcdabc30c4522715c4e"
+    },
+    {
+      "change": "feat(autolinks): recognize Web-compatible literal URLs and email addresses",
+      "sourceRevision": "42cc391c9d95d6c0b36c7ae1f43e64d57340264d",
+      "patch": "scripts/url-tokenizer-probe/c-web-autolink.patch",
+      "sha256": "d504eb0d96cb5a55a849ae14c96cba26cad4d71b80c2fa8695ce50e687772b18"
+    },
+    {
+      "change": "feat(emphasis): add opt-in flanking rules for adjacent extension delimiters",
+      "sourceRevision": "42cc391c9d95d6c0b36c7ae1f43e64d57340264d",
+      "patch": "scripts/emphasis-probe/c-web-emphasis.patch",
+      "sha256": "2466ab61daf23a30cd4b26a4a3dbf812cdbdf273ef90b9cdd586b5e647633b5f"
+    },
+    {
+      "change": "fix(emphasis): align Unicode flanking and delimiter spans with Web behavior",
+      "sourceRevision": "42cc391c9d95d6c0b36c7ae1f43e64d57340264d",
+      "patch": "scripts/emphasis-probe/c-web-emphasis-unicode.patch",
+      "sha256": "219e51046890878fe27bbbaa595efef3689559e3adb87ac4f51894f1f1a9cdff"
+    },
+    {
+      "change": "feat(definition-lists): parse terms and descriptions with spread metadata",
+      "sourceRevision": "42cc391c9d95d6c0b36c7ae1f43e64d57340264d",
+      "patch": "scripts/definition-list-probe/c-definition-list.patch",
+      "sha256": "0c8f8836333038daf72bb854f10fbf5faa1733e0e6006beea73b334f3363af09"
+    },
+    {
+      "change": "feat(renderers): support definition lists across output formats",
+      "sourceRevision": "42cc391c9d95d6c0b36c7ae1f43e64d57340264d",
+      "patch": "scripts/definition-list-probe/c-renderers.patch",
+      "sha256": "ceba137f236f879e65b111eed15f7613b77c40d6e1ad75e4db92110d8fc48d00"
+    },
+    {
+      "change": "feat(math): parse opt-in inline and fenced math nodes",
+      "sourceRevision": "42cc391c9d95d6c0b36c7ae1f43e64d57340264d",
+      "patch": "scripts/math-parser-probe/c-math.patch",
+      "sha256": "ba51b8e6d4a1e537034b49cafa47fe2b060660027ad2cf503ac80c8d7799cb47"
+    },
+    {
+      "change": "feat(references): preserve link definitions as source-positioned AST leaves",
+      "sourceRevision": "42cc391c9d95d6c0b36c7ae1f43e64d57340264d",
+      "patch": "scripts/reference-definition-probe/c-reference-definitions.patch",
+      "sha256": "9b436ec9abcab2cd169b94ba432a3c7575c8e555adec271e84f04616e938e880"
+    },
+    {
+      "change": "fix(decoding): share single-pass string decoding for math and references",
+      "sourceRevision": "42cc391c9d95d6c0b36c7ae1f43e64d57340264d",
+      "patch": "scripts/math-meta-probe/c-string-token.patch",
+      "sha256": "c82c99d7ccbe6e7fde43a35cc46f014dee3af76a3dc7a458b02f6a6764742d78"
+    },
+    {
+      "change": "feat(references): expose usage identity and Web-compatible identifiers",
+      "sourceRevision": "42cc391c9d95d6c0b36c7ae1f43e64d57340264d",
+      "patch": "scripts/reference-usage-probe/c-reference-usages.patch",
+      "sha256": "b2ef53f43fcc6bcb22e71c8464be6739e54aefa51c42a0c72e9c03d49ae95218"
+    },
+    {
+      "change": "feat(decoding): add opt-in Web character-reference semantics",
+      "sourceRevision": "42cc391c9d95d6c0b36c7ae1f43e64d57340264d",
+      "patch": "scripts/web-character-reference-probe/c-web-character-references.patch",
+      "sha256": "a787cc7b7aaf0df75b82fb043106166f4e501cdabd5e4d0d769ee0c7b00bfdee"
+    },
+    {
+      "change": "feat(labels): expose length-aware reference-label decoding",
+      "sourceRevision": "42cc391c9d95d6c0b36c7ae1f43e64d57340264d",
+      "patch": "scripts/footnote-label-probe/c-footnote-label.patch",
+      "sha256": "2d3e9d4242ef57be840d2defa19130b96faae7239eb101cbc8038e80d53f2549"
+    },
+    {
+      "change": "feat(code): expose source-based code metadata without changing literals",
+      "sourceRevision": "42cc391c9d95d6c0b36c7ae1f43e64d57340264d",
+      "patch": "scripts/code-metadata-probe/c-code-metadata.patch",
+      "sha256": "96293c0bbf031aa7e757c58c8b6195254887ee6091feb8de859252ba3fc02ffc"
+    },
+    {
+      "change": "feat(code): support long delimiters with opt-in Web syntax",
+      "sourceRevision": "42cc391c9d95d6c0b36c7ae1f43e64d57340264d",
+      "patch": "scripts/code-delimiter-probe/c-web-code-syntax.patch",
+      "sha256": "dfb5db082b1bf570bf6189be56ef34d7f4c3bc28398a5f3032d719a208754af1"
+    },
+    {
+      "change": "fix(code): normalize escaped pipes in table code metadata",
+      "sourceRevision": "42cc391c9d95d6c0b36c7ae1f43e64d57340264d",
+      "patch": "scripts/table-code-metadata-probe/c-table-code-metadata.patch",
+      "sha256": "b55889314d17078cdb176b82858d57729947652c4a08c3e2a15396b86a5af27e"
+    },
+    {
+      "change": "feat(softbreaks): expose physical line endings from parser events",
+      "sourceRevision": "42cc391c9d95d6c0b36c7ae1f43e64d57340264d",
+      "patch": "scripts/softbreak-metadata-probe/c-softbreak-metadata.patch",
+      "sha256": "6e1d0a59d3eff2425e507a5e86d01a43ceddec3cf021f07df10ce11a9edbe70d"
+    }
+  ]
+}
