@@ -339,6 +339,9 @@ static int S_render_node(cmark_renderer *renderer, cmark_node *node,
     break;
 
   case CMARK_NODE_MATH_BLOCK:
+  case CMARK_NODE_LINK_REFERENCE_DEFINITION:
+    break;
+
   case CMARK_NODE_CODE_BLOCK:
     CR();
     LIT("\\begin{verbatim}");

@@ -71,7 +71,13 @@ typedef struct {
   cmark_chunk prefix;
 } cmark_math_line;
 
+typedef struct {
+  cmark_chunk label, identifier_source, destination, title;
+  bool has_title;
+} cmark_reference_definition;
+
 struct cmark_node {
+  cmark_reference_definition *reference_definition;
   cmark_strbuf content;
 
   struct cmark_node *next;

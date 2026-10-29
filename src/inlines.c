@@ -1947,12 +1947,157 @@ static void spnl(subject *subj) {
   }
 }
 
+// micromark's label size counts UTF-16 units, excluding line-ending events.
+static int reference_label(subject *subj, cmark_chunk *label) {
+  if (peek_char(subj) != '[') return 0;
+  advance(subj);
+  bufsize_t start = subj->pos;
+  int length = 0;
+  unsigned char c;
+  while ((c = peek_char(subj)) && c != '[' && c != ']') {
+    if (c == '\\') {
+      advance(subj); length++;
+      if (cmark_ispunct(peek_char(subj))) { advance(subj); length++; }
+    } else {
+      advance(subj);
+      if (c != '\n' && c != '\r' && (c < 0x80 || c >= 0xc0)) length += c >= 0xf0 ? 2 : 1;
+    }
+    if (length > 999) return 0;
+  }
+  if (c != ']') return 0;
+  *label = cmark_chunk_dup(&subj->input, start, subj->pos - start);
+  while (label->len && (label->data[0] == ' ' || label->data[0] == '\t' || label->data[0] == '\r' || label->data[0] == '\n')) { label->data++; label->len--; }
+  while (label->len && (label->data[label->len - 1] == ' ' || label->data[label->len - 1] == '\t' || label->data[label->len - 1] == '\r' || label->data[label->len - 1] == '\n')) label->len--;
+  advance(subj);
+  return 1;
+}
+
+// micromark-factory-destination: definition destinations have unbounded balanced parentheses.
+static bufsize_t reference_destination(cmark_chunk *input, bufsize_t start, cmark_chunk *out) {
+  bufsize_t i = start;
+  if (i >= input->len) return -1;
+  if (input->data[i] == '<') {
+    i++;
+    bufsize_t body = i;
+    while (i < input->len) {
+      unsigned char c = input->data[i];
+      if (c == '>') { *out = cmark_chunk_dup(input, body, i - body); return i + 1 - start; }
+      if (c == '<' || c == '\r' || c == '\n') return -1;
+      if (c == '\\' && i + 1 < input->len &&
+          (input->data[i + 1] == '<' || input->data[i + 1] == '>' || input->data[i + 1] == '\\')) i++;
+      i++;
+    }
+    return -1;
+  }
+  size_t balance = 0;
+  while (i < input->len) {
+    unsigned char c = input->data[i];
+    if (!balance && (c == ')' || c == ' ' || c == '\t' || c == '\r' || c == '\n')) break;
+    if (c == '(') balance++;
+    else if (c == ')') balance--;
+    else if (c <= 32 || c == 127) return -1;
+    if (c == '\\' && i + 1 < input->len &&
+        (input->data[i + 1] == '(' || input->data[i + 1] == ')' || input->data[i + 1] == '\\')) i++;
+    i++;
+  }
+  if (i == start || balance) return -1;
+  *out = cmark_chunk_dup(input, start, i - start);
+  return i - start;
+}
+
+// micromark-factory-title: marker/backslash escapes, continuation prefixes, no blank line.
+static bufsize_t reference_title(cmark_chunk *input, bufsize_t start) {
+  if (start >= input->len) return 0;
+  unsigned char marker = input->data[start];
+  if (marker != '\"' && marker != '\'' && marker != '(') return 0;
+  if (marker == '(') marker = ')';
+  bufsize_t i = start + 1;
+  while (i < input->len) {
+    unsigned char c = input->data[i];
+    if (c == marker) return i + 1 - start;
+    if (c == '\\' && i + 1 < input->len &&
+        (input->data[i + 1] == marker || input->data[i + 1] == '\\')) { i += 2; continue; }
+    if (c == '\r' || c == '\n') {
+      if (c == '\r' && i + 1 < input->len && input->data[i + 1] == '\n') i++;
+      i++;
+      while (i < input->len && (input->data[i] == ' ' || input->data[i] == '\t')) i++;
+      if (i >= input->len || input->data[i] == '\r' || input->data[i] == '\n') return 0;
+    } else i++;
+  }
+  return 0;
+}
+
+// Source rows retain physical byte columns and CR/CRLF after cmark's flow normalization.
+static const cmark_math_line *reference_row(cmark_node *parent, bufsize_t at) {
+  size_t lo = 0, hi = parent->math_line_count;
+  while (lo < hi) {
+    size_t mid = lo + (hi - lo) / 2;
+    if (parent->math_lines[mid].offset <= at) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo ? &parent->math_lines[lo - 1] : NULL;
+}
+// micromark-util-decode-numeric-character-reference and character-reference digit limits.
+static bufsize_t reference_entity(cmark_strbuf *out, const unsigned char *data, bufsize_t size) {
+  if (!size || data[0] != '#') return houdini_unescape_ent(out, data, size);
+  bufsize_t i = 1;
+  int radix = 10, limit = 7, count = 0;
+  if (i < size && (data[i] == 'x' || data[i] == 'X')) { radix = 16; limit = 6; i++; }
+  int code = 0;
+  for (; i < size; i++) {
+    unsigned char c = data[i]; int digit = -1;
+    if (c >= '0' && c <= '9') digit = c - '0';
+    else if (radix == 16 && c >= 'a' && c <= 'f') digit = c - 'a' + 10;
+    else if (radix == 16 && c >= 'A' && c <= 'F') digit = c - 'A' + 10;
+    if (digit < 0) break;
+    count++; code = code * radix + digit;
+    if (code > 0x110000) code = 0x110000;
+  }
+  if (!count || count > limit || i >= size || data[i] != ';') return 0;
+  if (code < 9 || code == 11 || (code > 13 && code < 32) ||
+      (code > 126 && code < 160) || (code >= 0xd800 && code < 0xe000) ||
+      (code >= 0xfdd0 && code <= 0xfdef) || (code & 0xffff) == 0xffff ||
+      (code & 0xffff) == 0xfffe || code > 0x10ffff) code = 0xfffd;
+  cmark_utf8proc_encode_char(code, out);
+  return i + 1;
+}
+
+static cmark_chunk reference_string(cmark_mem *mem, cmark_node *parent,
+                                    bufsize_t at, const unsigned char *data, bufsize_t size,
+                                    bool decode, bool title) {
+  cmark_strbuf out = CMARK_BUF_INIT(mem);
+  for (bufsize_t i = 0; i < size; i++) {
+    unsigned char c = data[i];
+    if (c == '\n') {
+      const cmark_math_line *row = reference_row(parent, at + i);
+      int ending = row ? row->ending : 10;
+      if (ending != 10 && ending != 0) cmark_strbuf_putc(&out, '\r');
+      if (ending != 13) cmark_strbuf_putc(&out, '\n');
+      if (!title) {
+        const cmark_math_line *next = reference_row(parent, at + i + 1);
+        if (next && next != row) cmark_strbuf_put(&out, next->prefix.data, next->prefix.len);
+      } else while (i + 1 < size && (data[i + 1] == ' ' || data[i + 1] == '\t')) i++;
+    } else if (decode && c == '\\' && i + 1 < size && cmark_ispunct(data[i + 1])) {
+      cmark_strbuf_putc(&out, data[++i]);
+    } else if (decode && c == '&') {
+      bufsize_t consumed = reference_entity(&out, data + i + 1, size - i - 1);
+      if (consumed) i += consumed; else cmark_strbuf_putc(&out, c);
+    } else cmark_strbuf_putc(&out, c);
+  }
+  return cmark_chunk_buf_detach(&out);
+}
+static void reference_point(cmark_node *parent, bufsize_t at, int *line, int *column) {
+  const cmark_math_line *row = reference_row(parent, at);
+  if (row) { *line = row->line; *column = row->column + at - row->offset; }
+}
+
 // Parse reference.  Assumes string begins with '[' character.
 // Modify refmap if a reference is encountered.
 // Return 0 if no reference found, otherwise position of subject
 // after reference is parsed.
-bufsize_t cmark_parse_reference_inline(cmark_mem *mem, cmark_chunk *input,
-                                       cmark_map *refmap) {
+static bufsize_t parse_reference(cmark_mem *mem, cmark_chunk *input,
+                                cmark_map *refmap, cmark_node *parent,
+                                bufsize_t base, cmark_node **definition) {
   subject subj;
 
   cmark_chunk lab;
@@ -1965,8 +2110,10 @@ bufsize_t cmark_parse_reference_inline(cmark_mem *mem, cmark_chunk *input,
   subject_from_buf(mem, -1, 0, &subj, input, NULL);
 
   // parse label:
-  if (!link_label(&subj, &lab, false) || lab.len == 0)
+  if (!(parent ? reference_label(&subj, &lab) : link_label(&subj, &lab, false)) || lab.len == 0)
     return 0;
+
+  bufsize_t label_end = subj.pos;
 
   // colon:
   if (peek_char(&subj) == ':') {
@@ -1977,17 +2124,23 @@ bufsize_t cmark_parse_reference_inline(cmark_mem *mem, cmark_chunk *input,
 
   // parse link url:
   spnl(&subj);
-  if ((matchlen = manual_scan_link_url(&subj.input, subj.pos, &url)) > -1) {
+  if ((matchlen = parent ? reference_destination(&subj.input, subj.pos, &url) : manual_scan_link_url(&subj.input, subj.pos, &url)) > -1) {
     subj.pos += matchlen;
   } else {
     return 0;
   }
 
+  bufsize_t destination_start = url.data ? (bufsize_t)(url.data - input->data) : subj.pos;
+  bufsize_t destination_size = url.len;
+  bool has_title = false;
+  bufsize_t title_start = 0, title_size = 0;
+
   // parse optional link_title
   beforetitle = subj.pos;
   spnl(&subj);
-  matchlen = subj.pos == beforetitle ? 0 : scan_link_title(&subj.input, subj.pos);
+  matchlen = subj.pos == beforetitle ? 0 : parent ? reference_title(&subj.input, subj.pos) : scan_link_title(&subj.input, subj.pos);
   if (matchlen) {
+    has_title = true; title_start = subj.pos; title_size = matchlen;
     title = cmark_chunk_dup(&subj.input, subj.pos, matchlen);
     subj.pos += matchlen;
   } else {
@@ -2000,6 +2153,7 @@ bufsize_t cmark_parse_reference_inline(cmark_mem *mem, cmark_chunk *input,
   if (!skip_line_end(&subj)) {
     if (matchlen) { // try rewinding before title
       subj.pos = beforetitle;
+      has_title = false;
       skip_spaces(&subj);
       if (!skip_line_end(&subj)) {
         return 0;
@@ -2008,9 +2162,47 @@ bufsize_t cmark_parse_reference_inline(cmark_mem *mem, cmark_chunk *input,
       return 0;
     }
   }
+  cmark_chunk source_label = cmark_chunk_literal("");
+  if (definition) {
+    source_label = reference_string(mem, parent, base + 1, input->data + 1, label_end - 2, false, false);
+    int length = 0;
+    for (bufsize_t i = 0; i < source_label.len; i++) {
+      unsigned char c = source_label.data[i];
+      if (c != '\r' && c != '\n' && (c < 0x80 || c >= 0xc0)) length += c >= 0xf0 ? 2 : 1;
+      if (length > 999) { cmark_chunk_free(mem, &source_label); return 0; }
+    }
+  }
   // insert reference into refmap
   cmark_reference_create(refmap, &lab, &url, &title);
+  if (definition) {
+    cmark_node *node = cmark_node_new_with_mem(CMARK_NODE_LINK_REFERENCE_DEFINITION, mem);
+    node->reference_definition = mem->calloc(1, sizeof(cmark_reference_definition));
+    cmark_reference_definition *def = node->reference_definition;
+    def->identifier_source = source_label;
+    def->label = reference_string(mem, parent, base + 1, input->data + 1, label_end - 2, true, false);
+    def->destination = reference_string(mem, parent, base + destination_start, input->data + destination_start, destination_size, true, false);
+    def->has_title = has_title;
+    if (has_title) {
+      def->title = reference_string(mem, parent, base + title_start + 1, input->data + title_start + 1, title_size - 2, true, true);
+      def->has_title = def->title.len != 0;
+    }
+    bufsize_t last = subj.pos;
+    if (last && input->data[last - 1] == '\n') last--;
+    if (last && input->data[last - 1] == '\r') last--;
+    reference_point(parent, base, &node->start_line, &node->start_column);
+    reference_point(parent, base + last, &node->end_line, &node->end_column);
+    node->end_column--;
+    *definition = node;
+  }
   return subj.pos;
+}
+
+bufsize_t cmark_parse_reference_inline(cmark_mem *mem, cmark_chunk *input, cmark_map *refmap) {
+  return parse_reference(mem, input, refmap, NULL, 0, NULL);
+}
+bufsize_t cmark_parse_reference_definition(cmark_mem *mem, cmark_chunk *input, cmark_map *refmap,
+                                          cmark_node *parent, bufsize_t base, cmark_node **definition) {
+  return parse_reference(mem, input, refmap, parent, base, definition);
 }
 
 bufsize_t cmark_parse_reference_attributes_inline(cmark_mem *mem, cmark_chunk *input,

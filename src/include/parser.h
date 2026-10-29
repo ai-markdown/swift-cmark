@@ -15,6 +15,8 @@ extern "C" {
 
 #define MAX_LINK_LABEL_LENGTH 1000
 
+bool cmark_resolve_reference_definitions(cmark_parser *parser, cmark_node *node);
+
 struct cmark_parser {
   struct cmark_mem *mem;
   /* A hashtable of urls in the current document for cross-references */

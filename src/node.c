@@ -174,6 +174,14 @@ cmark_node *cmark_node_new(cmark_node_type type) {
 }
 
 static void free_node_as(cmark_node *node) {
+  if (node->reference_definition) {
+    cmark_reference_definition *def = node->reference_definition;
+    cmark_chunk_free(NODE_MEM(node), &def->label);
+    cmark_chunk_free(NODE_MEM(node), &def->identifier_source);
+    cmark_chunk_free(NODE_MEM(node), &def->destination);
+    cmark_chunk_free(NODE_MEM(node), &def->title);
+    NODE_MEM(node)->free(def); node->reference_definition = NULL;
+  }
   for (size_t i = 0; i < node->math_line_count; i++) cmark_chunk_free(NODE_MEM(node), &node->math_lines[i].prefix);
   NODE_MEM(node)->free(node->math_lines);
   node->math_lines = NULL; node->math_line_count = node->math_line_capacity = 0;
@@ -293,6 +301,8 @@ const char *cmark_node_get_type_string(cmark_node *node) {
     return "list";
   case CMARK_NODE_ITEM:
     return "item";
+  case CMARK_NODE_LINK_REFERENCE_DEFINITION:
+    return "link_reference_definition";
   case CMARK_NODE_MATH_BLOCK:
     return "math_block";
   case CMARK_NODE_CODE_BLOCK:
@@ -1181,4 +1191,17 @@ int cmark_node_check(cmark_node *node, FILE *out) {
 
 int cmark_node_get_definition_spread(cmark_node *node) {
   return node && node->type == CMARK_NODE_DEFINITION_DESCRIPTION && node->definition.spread;
+}
+
+const char *cmark_node_get_reference_label(cmark_node *node) {
+  return node && node->reference_definition ? cmark_chunk_to_cstr(NODE_MEM(node), &node->reference_definition->label) : NULL;
+}
+const char *cmark_node_get_reference_identifier_source(cmark_node *node) {
+  return node && node->reference_definition ? cmark_chunk_to_cstr(NODE_MEM(node), &node->reference_definition->identifier_source) : NULL;
+}
+const char *cmark_node_get_reference_destination(cmark_node *node) {
+  return node && node->reference_definition ? cmark_chunk_to_cstr(NODE_MEM(node), &node->reference_definition->destination) : NULL;
+}
+const char *cmark_node_get_reference_title(cmark_node *node) {
+  return node && node->reference_definition && node->reference_definition->has_title ? cmark_chunk_to_cstr(NODE_MEM(node), &node->reference_definition->title) : NULL;
 }

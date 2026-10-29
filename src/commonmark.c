@@ -317,6 +317,9 @@ static int S_render_node(cmark_renderer *renderer, cmark_node *node,
     break;
   }
 
+  case CMARK_NODE_LINK_REFERENCE_DEFINITION:
+    break;
+
   case CMARK_NODE_CODE_BLOCK:
     first_in_list_item = node->prev == NULL && node->parent &&
                          node->parent->type == CMARK_NODE_ITEM;

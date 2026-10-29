@@ -7,7 +7,7 @@
 #include "cmark-gfm.h"
 #include "buffer.h"
 
-cmark_node_type CMARK_NODE_LAST_BLOCK = CMARK_NODE_MATH_BLOCK;
+cmark_node_type CMARK_NODE_LAST_BLOCK = CMARK_NODE_LINK_REFERENCE_DEFINITION;
 cmark_node_type CMARK_NODE_LAST_INLINE = CMARK_NODE_MATH_INLINE;
 
 int cmark_version(void) { return CMARK_GFM_VERSION; }

@@ -21,6 +21,10 @@ void cmark_parse_inlines(cmark_parser *parser,
                          cmark_map *refmap,
                          int options);
 
+bufsize_t cmark_parse_reference_definition(cmark_mem *mem, cmark_chunk *input,
+                                          cmark_map *refmap, cmark_node *parent,
+                                          bufsize_t base, cmark_node **definition);
+
 bufsize_t cmark_parse_reference_inline(cmark_mem *mem, cmark_chunk *input,
                                        cmark_map *refmap);
 

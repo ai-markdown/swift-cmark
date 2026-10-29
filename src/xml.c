@@ -62,6 +62,15 @@ static int S_render_node(cmark_node *node, cmark_event_type ev_type,
     literal = false;
 
     switch (node->type) {
+    case CMARK_NODE_LINK_REFERENCE_DEFINITION: {
+      const char *names[] = {"label", "identifier_source", "destination", "title"};
+      const char *values[] = {cmark_node_get_reference_label(node), cmark_node_get_reference_identifier_source(node), cmark_node_get_reference_destination(node), cmark_node_get_reference_title(node)};
+      for (int i = 0; i < 4; i++) if (values[i]) {
+        cmark_strbuf_putc(xml, ' '); cmark_strbuf_puts(xml, names[i]); cmark_strbuf_puts(xml, "=\"");
+        escape_xml(xml, (const unsigned char *)values[i], strlen(values[i])); cmark_strbuf_putc(xml, '\"');
+      }
+      break;
+    }
     case CMARK_NODE_DOCUMENT:
       cmark_strbuf_puts(xml, " xmlns=\"http://commonmark.org/xml/1.0\"");
       break;

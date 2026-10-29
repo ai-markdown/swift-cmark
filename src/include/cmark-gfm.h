@@ -59,6 +59,8 @@ typedef enum {
   CMARK_NODE_DEFINITION_DESCRIPTION = CMARK_NODE_TYPE_BLOCK | 0x000e,
   CMARK_NODE_MATH_BLOCK = CMARK_NODE_TYPE_BLOCK | 0x000f,
 
+  CMARK_NODE_LINK_REFERENCE_DEFINITION = CMARK_NODE_TYPE_BLOCK | 0x0010,
+
   /* Inline */
   CMARK_NODE_TEXT          = CMARK_NODE_TYPE_INLINE | 0x0001,
   CMARK_NODE_SOFTBREAK     = CMARK_NODE_TYPE_INLINE | 0x0002,
@@ -815,6 +817,14 @@ char *cmark_render_latex_with_mem(cmark_node *root, int options, int width, cmar
 
 /** Opt-in math grammar matching remark-math singleDollarTextMath=false. */
 #define CMARK_OPT_MATH (1 << 25)
+
+/** Preserve ordinary link reference definitions as lossless leaves in source order; reference usage rewriting remains disabled. */
+#define CMARK_OPT_REFERENCE_DEFINITIONS (1 << 26)
+
+CMARK_GFM_EXPORT const char *cmark_node_get_reference_label(cmark_node *node);
+CMARK_GFM_EXPORT const char *cmark_node_get_reference_identifier_source(cmark_node *node);
+CMARK_GFM_EXPORT const char *cmark_node_get_reference_destination(cmark_node *node);
+CMARK_GFM_EXPORT const char *cmark_node_get_reference_title(cmark_node *node);
 
 /** Only parse strikethroughs if surrounded by exactly 2 tildes.
  * Gives some compatibility with redcarpet.

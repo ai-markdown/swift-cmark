@@ -249,7 +249,7 @@ static void add_line(cmark_node *node, cmark_chunk *ch, cmark_parser *parser) {
       cmark_strbuf_putc(&node->content, ' ');
     }
   }
-  if ((parser->options & CMARK_OPT_MATH) &&
+  if ((parser->options & (CMARK_OPT_MATH | CMARK_OPT_REFERENCE_DEFINITIONS)) &&
       (node->type == CMARK_NODE_PARAGRAPH || node->type == CMARK_NODE_HEADING)) {
     if (node->math_line_count == node->math_line_capacity) {
       node->math_line_capacity = node->math_line_capacity ? node->math_line_capacity * 2 : 8;
@@ -326,15 +326,32 @@ static bool resolve_reference_link_definitions(
   bufsize_t pos;
   cmark_strbuf *node_content = &b->content;
   cmark_chunk chunk = {node_content->ptr, node_content->size, 0};
-  while ((chunk.len && chunk.data[0] == '[' &&
-            (pos = cmark_parse_reference_inline(parser->mem, &chunk, parser->refmap))) ||
-         (chunk.len && chunk.data[0] == '^' && chunk.data[1] == '[' &&
-            (pos = cmark_parse_reference_attributes_inline(parser->mem, &chunk, parser->refmap)))) {
-
+  for (;;) {
+    cmark_node *definition = NULL;
+    bufsize_t indent = 0;
+    if (parser->options & CMARK_OPT_REFERENCE_DEFINITIONS) {
+      while (indent < chunk.len && (chunk.data[indent] == ' ' || chunk.data[indent] == '\t')) indent++;
+    }
+    if (chunk.len > indent && chunk.data[indent] == '[') {
+      cmark_chunk candidate = {chunk.data + indent, chunk.len - indent, 0};
+      pos = (parser->options & CMARK_OPT_REFERENCE_DEFINITIONS) ?
+          cmark_parse_reference_definition(parser->mem, &candidate, parser->refmap, b,
+                                          node_content->size - chunk.len + indent, &definition) :
+          cmark_parse_reference_inline(parser->mem, &chunk, parser->refmap);
+      if (pos) pos += indent;
+    } else if (chunk.len > 1 && chunk.data[0] == '^' && chunk.data[1] == '[') {
+      pos = cmark_parse_reference_attributes_inline(parser->mem, &chunk, parser->refmap);
+    } else pos = 0;
+    if (!pos) break;
+    if (definition && !cmark_node_insert_before(b, definition)) cmark_node_free(definition);
     chunk.data += pos;
     chunk.len -= pos;
   }
-  if ((parser->options & CMARK_OPT_DEFINITION_LISTS) && node_content->size > chunk.len) {
+  if ((parser->options & CMARK_OPT_REFERENCE_DEFINITIONS) && node_content->size > chunk.len) {
+    // Remaining flow content starts a new logical paragraph after the definitions.
+    while (chunk.len && (chunk.data[0] == ' ' || chunk.data[0] == '\t')) { chunk.data++; chunk.len--; }
+  }
+  if ((parser->options & (CMARK_OPT_DEFINITION_LISTS | CMARK_OPT_REFERENCE_DEFINITIONS)) && node_content->size > chunk.len) {
     for (bufsize_t i = 0; i < node_content->size - chunk.len; i++) {
       if (node_content->ptr[i] == '\n' || (node_content->ptr[i] == '\r' && (i + 1 == node_content->size - chunk.len || node_content->ptr[i + 1] != '\n'))) b->start_line++;
     }
@@ -356,9 +373,17 @@ static bool resolve_reference_link_definitions(
       b->math_lines[out++] = row;
     }
     b->math_line_count = out;
+    if ((parser->options & CMARK_OPT_REFERENCE_DEFINITIONS) && out) {
+      b->start_line = b->math_lines[0].line; b->start_column = b->math_lines[0].column;
+    }
   }
   cmark_strbuf_drop(node_content, dropped);
   return !is_blank(&b->content, 0);
+}
+
+// Table conversion must preserve completed reference definitions before changing paragraph type.
+bool cmark_resolve_reference_definitions(cmark_parser *parser, cmark_node *node) {
+  return resolve_reference_link_definitions(parser, node);
 }
 
 static cmark_node *finalize(cmark_parser *parser, cmark_node *b) {

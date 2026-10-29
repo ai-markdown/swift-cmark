@@ -449,6 +449,9 @@ static cmark_node *try_opening_table_header(cmark_syntax_extension *self,
 
   assert(delimiter_row);
 
+  if (parser->options & CMARK_OPT_REFERENCE_DEFINITIONS)
+    cmark_resolve_reference_definitions(parser, parent_container);
+
   cmark_arena_push();
 
   // Check for a matching header row. We call `row_from_string` with the entire

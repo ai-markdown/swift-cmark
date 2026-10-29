@@ -26,6 +26,7 @@ void cmark_iter_free(cmark_iter *iter) { iter->mem->free(iter); }
 
 static bool S_is_leaf(cmark_node *node) {
   switch (node->type) {
+  case CMARK_NODE_LINK_REFERENCE_DEFINITION:
   case CMARK_NODE_HTML_BLOCK:
   case CMARK_NODE_THEMATIC_BREAK:
   case CMARK_NODE_MATH_BLOCK:
