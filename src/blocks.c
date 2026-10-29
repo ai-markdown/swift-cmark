@@ -257,7 +257,7 @@ static void add_line(cmark_node *node, cmark_chunk *ch, cmark_parser *parser) {
       cmark_strbuf_putc(&node->content, ' ');
     }
   }
-  if ((parser->options & (CMARK_OPT_MATH | CMARK_OPT_REFERENCE_DEFINITIONS | CMARK_OPT_WEB_CHARACTER_REFERENCES | CMARK_OPT_CODE_METADATA | CMARK_OPT_SOFTBREAK_METADATA)) &&
+  if ((parser->options & (CMARK_OPT_MATH | CMARK_OPT_REFERENCE_DEFINITIONS | CMARK_OPT_WEB_CHARACTER_REFERENCES | CMARK_OPT_CODE_METADATA | CMARK_OPT_SOFTBREAK_METADATA | CMARK_OPT_WEB_POSITIONS)) &&
       (node->type == CMARK_NODE_PARAGRAPH || node->type == CMARK_NODE_HEADING)) {
     if (node->math_line_count == node->math_line_capacity) {
       node->math_line_capacity = node->math_line_capacity ? node->math_line_capacity * 2 : 8;
@@ -1243,12 +1243,15 @@ static bool parse_code_block_prefix(cmark_parser *parser, cmark_chunk *input,
                                     bool *should_continue) {
   bool res = false;
 
+  cmark_list_spread_leaf_prefix(parser, container);
   if (!container->as.code.fenced) { // indented
     if (parser->indent >= CODE_INDENT) {
+      cmark_list_spread_indent(parser, container, true);
       if (container->code_metadata) container->code_metadata->indented_qualified = true;
       S_advance_offset(parser, input, CODE_INDENT, true);
       res = true;
     } else if (parser->blank) {
+      cmark_list_spread_indent(parser, container, false);
       if (container->code_metadata) container->code_metadata->indented_qualified = false;
       S_advance_offset(parser, input, parser->first_nonspace - parser->offset,
                        false);
@@ -1429,6 +1432,7 @@ static cmark_node *check_open_blocks(cmark_parser *parser, cmark_chunk *input,
       // a heading can never contain more than one line
       goto done;
     case CMARK_NODE_HTML_BLOCK:
+      cmark_list_spread_leaf_prefix(parser, container);
       if (!parse_html_block_prefix(parser, container))
         goto done;
       break;
@@ -1475,6 +1479,17 @@ done:
   }
 
   return container;
+}
+
+/* Web atxHeading and setextHeading tokens end at the physical end of their last
+ * line, including trailing whitespace and closing sequences. */
+static void S_web_heading_end(cmark_parser *parser, cmark_node *heading, cmark_chunk *input) {
+  if (!(parser->options & CMARK_OPT_WEB_POSITIONS))
+    return;
+  bufsize_t end = input->len;
+  while (end > 0 && S_is_line_end_char(input->data[end - 1]))
+    end--;
+  cmark_web_position_set_end(heading, parser->line_number, end + 1);
 }
 
 static void open_new_blocks(cmark_parser *parser, cmark_node **container,
@@ -1535,6 +1550,10 @@ static void open_new_blocks(cmark_parser *parser, cmark_node **container,
       (*container)->as.heading.setext = false;
       (*container)->internal_offset = matched;
       cmark_list_spread_leaf(parser, *container, false);
+      if (parser->options & CMARK_OPT_WEB_POSITIONS) {
+        cmark_web_position_set_start(*container, parser->line_number, heading_startpos + 1);
+        S_web_heading_end(parser, *container, input);
+      }
 
     } else if (!indented && (parser->options & CMARK_OPT_MATH) &&
                (matched = math_fence(input, parser->first_nonspace, false))) {
@@ -1571,9 +1590,13 @@ static void open_new_blocks(cmark_parser *parser, cmark_node **container,
                              (cont_type != CMARK_NODE_PARAGRAPH &&
                               (matched = scan_html_block_start_7(
                                    input, parser->first_nonspace))))) {
+      int web_html_start = parser->partially_consumed_tab ? 0 : parser->offset + 1;
       *container = add_child(parser, *container, CMARK_NODE_HTML_BLOCK,
                              parser->first_nonspace + 1);
       (*container)->as.html_block_type = matched;
+      /* Web htmlFlow includes the indentation after container prefixes. */
+      if ((parser->options & CMARK_OPT_WEB_POSITIONS) && web_html_start)
+        cmark_web_position_set_start(*container, parser->line_number, web_html_start);
       // note, we don't adjust parser->offset because the tag is part of the
       // text
     } else if (!indented && cont_type == CMARK_NODE_PARAGRAPH &&
@@ -1588,6 +1611,13 @@ static void open_new_blocks(cmark_parser *parser, cmark_node **container,
         (*container)->as.heading.level = lev;
         (*container)->as.heading.setext = true;
         cmark_list_spread_leaf(parser, *container, false);
+        /* Starts where the first remaining content line starts. */
+        if ((parser->options & CMARK_OPT_WEB_POSITIONS) && (*container)->math_line_count &&
+            (*container)->math_lines[0].offset == 0) {
+          cmark_web_position_set_start(*container, (*container)->math_lines[0].line,
+                                       (*container)->math_lines[0].column);
+          S_web_heading_end(parser, *container, input);
+        }
         S_advance_offset(parser, input, input->len - 1 - parser->offset, false);
       }
     } else if (!indented &&
@@ -1647,6 +1677,17 @@ static void open_new_blocks(cmark_parser *parser, cmark_node **container,
       }
 
       i = parser->column - save_column;
+      /* micromark's listItemPrefix ends after the marker when the rest of the
+       * line is blank, after one whitespace for five or more columns, and
+       * after all whitespace otherwise; tabs leave the point unknown. */
+      int web_prefix_end = 0;
+      bool web_blank_after_marker = i < 1 || S_is_line_end_char(peek_at(input, parser->offset));
+      bool web_prefix_tab = save_partially_consumed_tab;
+      for (bufsize_t k = save_offset; k < parser->offset; k++)
+        if (peek_at(input, k) == '\t') web_prefix_tab = true;
+      if (!web_prefix_tab)
+        web_prefix_end = web_blank_after_marker ? save_offset + 1
+                         : i >= 5 ? save_offset + 2 : parser->offset + 1;
       if (i >= 5 || i < 1 ||
           // only spaces after list marker:
           S_is_line_end_char(peek_at(input, parser->offset))) {
@@ -1679,13 +1720,18 @@ static void open_new_blocks(cmark_parser *parser, cmark_node **container,
       *container = add_child(parser, *container, CMARK_NODE_ITEM,
                              parser->first_nonspace + 1);
       cmark_list_spread_open(parser, *container);
+      cmark_list_spread_item_prefix(parser, *container, web_prefix_end);
       /* TODO: static */
       memcpy(&((*container)->as.list), data, sizeof(*data));
       parser->mem->free(data);
     } else if (indented && !maybe_lazy && !parser->blank) {
+      /* Web codeIndented includes its indentation after container prefixes. */
+      int web_code_start = parser->partially_consumed_tab ? 0 : parser->offset + 1;
       S_advance_offset(parser, input, CODE_INDENT, true);
       *container = add_child(parser, *container, CMARK_NODE_CODE_BLOCK,
                              parser->offset + 1);
+      if ((parser->options & CMARK_OPT_WEB_POSITIONS) && web_code_start)
+        cmark_web_position_set_start(*container, parser->line_number, web_code_start);
       (*container)->definition.single_line = parser->definition_lazy_code;
       (*container)->as.code.fenced = false;
       if (parser->options & CMARK_OPT_CODE_METADATA) { cmark_code_metadata_start(*container, 2); (*container)->code_metadata->indented_qualified = true; }
@@ -2099,6 +2145,7 @@ static void S_process_line(cmark_parser *parser, const unsigned char *buffer,
   cmark_list_spread_line(parser);
 
   last_matched_container = check_open_blocks(parser, &input, &all_matched);
+  cmark_list_spread_continued(parser, last_matched_container);
 
   if (!last_matched_container)
     goto finished;
@@ -2129,7 +2176,6 @@ static void S_process_line(cmark_parser *parser, const unsigned char *buffer,
     parser->current = finalize(parser, parser->current);
   }
 finished:
-  cmark_list_spread_end_line(parser, parser->math_last_line_ending);
   parser->last_line_length = input.len;
   if (parser->last_line_length &&
       input.data[parser->last_line_length - 1] == '\n')
@@ -2137,6 +2183,15 @@ finished:
   if (parser->last_line_length &&
       input.data[parser->last_line_length - 1] == '\r')
     parser->last_line_length -= 1;
+  {
+    /* The physical line, not `input`: ATX headings chop the chunk's length. */
+    bufsize_t physical = parser->curline.size;
+    if (physical && parser->curline.ptr[physical - 1] == '\n')
+      physical -= 1;
+    if (physical && parser->curline.ptr[physical - 1] == '\r')
+      physical -= 1;
+    cmark_list_spread_end_line(parser, parser->math_last_line_ending, physical);
+  }
 
   if ((parser->options & CMARK_OPT_FOOTNOTES) &&
       (parser->options & CMARK_OPT_FOOTNOTES_LOSSLESS)) {

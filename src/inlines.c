@@ -112,6 +112,14 @@ static void subject_from_buf(cmark_mem *mem, int line_number, int block_offset, 
                              cmark_chunk *buffer, cmark_map *refmap);
 static bufsize_t subject_find_special_char(cmark_parser *parser, subject *subj, int options);
 
+/* Web position evidence: remember the inline-subject span [start, end) of an
+ * actual token; cmark_parse_inlines maps it to source points per content line. */
+static inline void web_subject_span(cmark_node *node, bufsize_t start, bufsize_t end) {
+  node->web_subject_start = start;
+  node->web_subject_end = end;
+  node->web_position_flags = CMARK_WEB_POSITION_SUBJECT;
+}
+
 // Create an inline with a literal string value.
 static inline cmark_node *make_literal(subject *subj, cmark_node_type t,
                                        int start_column, int end_column,
@@ -124,6 +132,7 @@ static inline cmark_node *make_literal(subject *subj, cmark_node_type t,
   // columns are 1 based.
   e->start_column = start_column + 1 + subj->column_offset + subj->block_offset;
   e->end_column = end_column + 1 + subj->column_offset + subj->block_offset;
+  web_subject_span(e, start_column, end_column + 1);
   return e;
 }
 
@@ -214,6 +223,7 @@ static inline cmark_node *make_autolink(subject *subj, int start_column,
   link->start_line = link->end_line = subj->line;
   link->start_column = start_column + 1 + subj->column_offset + subj->block_offset;
   link->end_column = end_column + 1 + subj->column_offset + subj->block_offset;
+  web_subject_span(link, start_column, end_column + 1);
   append_child(link, web_tokens ? make_str(subj, start_column + 1, end_column - 1, url) : make_str_with_entities(subj, start_column + 1, end_column - 1, &url));
   return link;
 }
@@ -519,6 +529,7 @@ static cmark_node *handle_backticks(subject *subj, int options) {
       cmark_chunk_free(subj->mem, &source);
     }
     node->backtick_count = openticks.len;
+    web_subject_span(node, initpos, endpos);
     adjust_subj_node_newlines(subj, node, endpos - startpos, openticks.len, options);
     return node;
   }
@@ -1069,6 +1080,16 @@ static delimiter *S_insert_emph(subject *subj, delimiter *opener, bool web_empha
   }
   cmark_node_insert_after(opener_inl, emph);
 
+  /* Used delimiters are the opener's suffix and the closer's prefix. */
+  if ((opener_inl->web_position_flags & CMARK_WEB_POSITION_SUBJECT) &&
+      (closer_inl->web_position_flags & CMARK_WEB_POSITION_SUBJECT)) {
+    bufsize_t start = opener_inl->web_subject_start + opener_num_chars;
+    bufsize_t end = closer_inl->web_subject_start + use_delims;
+    web_subject_span(emph, start, end);
+    opener_inl->web_subject_end = start;
+    closer_inl->web_subject_start = end;
+  }
+
   emph->start_line = opener_inl->start_line;
   emph->end_line = closer_inl->end_line;
   emph->start_column = opener_inl->start_column;
@@ -1103,6 +1124,7 @@ static delimiter *S_insert_emph(subject *subj, delimiter *opener, bool web_empha
 
 // Parse backslash-escape or just a backslash, returning an inline.
 static cmark_node *handle_backslash(cmark_parser *parser, subject *subj) {
+  bufsize_t start = subj->pos;
   advance(subj);
   unsigned char nextchar = peek_char(subj);
   if ((parser->backslash_ispunct ? parser->backslash_ispunct : cmark_ispunct)(nextchar)) {
@@ -1110,7 +1132,11 @@ static cmark_node *handle_backslash(cmark_parser *parser, subject *subj) {
     advance(subj);
     return make_str(subj, subj->pos - 2, subj->pos - 1, cmark_chunk_dup(&subj->input, subj->pos - 1, 1));
   } else if (!is_eof(subj) && skip_line_end(subj)) {
-    return make_linebreak(subj->mem);
+    cmark_node *node = make_linebreak(subj->mem);
+    /* hardBreakEscape plus the line ending mdast appends to the break. */
+    web_subject_span(node, start, subj->pos);
+    node->web_position_flags |= CMARK_WEB_POSITION_SUBJECT_EOL;
+    return node;
   } else {
     return make_str(subj, subj->pos - 1, subj->pos - 1, cmark_chunk_literal("\\"));
   }
@@ -1813,6 +1839,7 @@ match:
   inl->start_column = opener->inl_text->start_column;
   inl->end_line = subj->line;
   inl->end_column = subj->pos + subj->column_offset + subj->block_offset;
+  web_subject_span(inl, opener->position - (is_image ? 2 : 1), subj->pos);
   if (usage_type) {
     math_source_point(subj, opener->position - (is_image ? 2 : 1), &inl->start_line, &inl->start_column);
     int column = inl->end_column + 1;
@@ -1872,15 +1899,29 @@ static cmark_node *handle_newline(subject *subj, int options) {
   if (peek_at(subj, subj->pos) == '\n') {
     advance(subj);
   }
+  bufsize_t after_line_ending = subj->pos;
   ++subj->line;
   subj->column_offset = -subj->pos;
   // skip spaces at beginning of line
   skip_spaces(subj);
   if (nlpos > 1 && peek_at(subj, nlpos - 1) == ' ' &&
       peek_at(subj, nlpos - 2) == ' ') {
-    return make_linebreak(subj->mem);
+    cmark_node *node = make_linebreak(subj->mem);
+    /* hardBreakTrailing covers the whole space run before the line ending;
+     * a tab in the run makes micromark treat it as a line suffix instead. */
+    bufsize_t start = nlpos;
+    while (start > 0 && peek_at(subj, start - 1) == ' ')
+      start--;
+    if (start == 0 || peek_at(subj, start - 1) != '\t') {
+      web_subject_span(node, start, after_line_ending);
+      node->web_position_flags |= CMARK_WEB_POSITION_SUBJECT_EOL;
+    }
+    return node;
   } else {
     cmark_node *node = make_softbreak(subj->mem);
+    /* The lineEnding token: the line ending itself, after any line suffix. */
+    web_subject_span(node, nlpos, after_line_ending);
+    node->web_position_flags |= CMARK_WEB_POSITION_SUBJECT_EOL;
     if (options & CMARK_OPT_SOFTBREAK_METADATA) {
       /* nlpos is this event's consumed inline-subject EOL. Its row was captured
        * by add_line before line-ending normalization, including cross-feed CRLF.
@@ -2102,6 +2143,8 @@ static int parse_inline(cmark_parser *parser, subject *subj, cmark_node *parent,
         }
 
         new_inl = make_str(subj, startpos, endpos - 1, contents);
+        /* Trailing whitespace before a line ending is a line suffix, not data. */
+        new_inl->web_subject_end = startpos + contents.len;
       }
     }
   }
@@ -2145,6 +2188,45 @@ static bool web_task_marker(subject *subj, cmark_node *parent, bufsize_t *body) 
 }
 
 // Parse inlines from parent's string_content, adding as children of parent.
+/* Map recorded inline-subject spans to source points through the content-line
+ * rows recorded by add_line (each row's physical start line and column), so
+ * continuation lines use their own content start rather than the first line's
+ * block offset. A span ending just after a line ending ends at the start of the
+ * next line, as mdast extends breaks over their line ending. Nodes without a
+ * recorded span, or with offsets outside the rows, keep no Web position. */
+static void web_inline_positions(subject *subj, cmark_node *parent) {
+  cmark_iter *iter = cmark_iter_new(parent);
+  cmark_event_type event;
+  while ((event = cmark_iter_next(iter)) != CMARK_EVENT_DONE) {
+    cmark_node *node = cmark_iter_get_node(iter);
+    if (event != CMARK_EVENT_ENTER || node == parent)
+      continue;
+    int flags = node->web_position_flags;
+    node->web_position_flags = 0;
+    if (!(flags & CMARK_WEB_POSITION_SUBJECT))
+      continue;
+    bufsize_t start = node->web_subject_start, end = node->web_subject_end;
+    if (start < 0 || end < start || end > subj->input.len + 2)
+      continue;
+    const cmark_math_line *first = math_line_at(subj, start);
+    if (!first)
+      continue;
+    if (end > start) {
+      const cmark_math_line *last = math_line_at(subj, end - 1);
+      if (!last)
+        continue;
+      if (flags & CMARK_WEB_POSITION_SUBJECT_EOL)
+        cmark_web_position_set_end(node, last->line + 1, 1);
+      else
+        cmark_web_position_set_end(node, last->line, last->column + (end - 1 - last->offset) + 1);
+    } else {
+      cmark_web_position_set_end(node, first->line, first->column + start - first->offset);
+    }
+    cmark_web_position_set_start(node, first->line, first->column + start - first->offset);
+  }
+  cmark_iter_free(iter);
+}
+
 void cmark_parse_inlines(cmark_parser *parser,
                          cmark_node *parent,
                          cmark_map *refmap,
@@ -2168,6 +2250,8 @@ void cmark_parse_inlines(cmark_parser *parser,
   if (task && parent->first_child && parent->first_child->type == CMARK_NODE_TEXT) {
     math_source_point(&subj, task_body, &parent->start_line, &parent->start_column);
   }
+  if (options & CMARK_OPT_WEB_POSITIONS)
+    web_inline_positions(&subj, parent);
   // free bracket and delim stack
   while (subj.last_delim) {
     remove_delimiter(&subj, subj.last_delim);

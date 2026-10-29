@@ -177,6 +177,34 @@ int cmark_node_get_list_spread(cmark_node *node) {
   return node && (node->type == CMARK_NODE_LIST || node->type == CMARK_NODE_ITEM) ? node->list_spread : 0;
 }
 
+int cmark_node_get_web_position(cmark_node *node, int *start_line, int *start_column,
+                                int *end_line, int *end_column) {
+  if (!node)
+    return 0;
+  int flags = node->web_position_flags & (CMARK_WEB_POSITION_START | CMARK_WEB_POSITION_END);
+  if (start_line) *start_line = flags & CMARK_WEB_POSITION_START ? node->web_start_line : 0;
+  if (start_column) *start_column = flags & CMARK_WEB_POSITION_START ? node->web_start_column : 0;
+  if (end_line) *end_line = flags & CMARK_WEB_POSITION_END ? node->web_end_line : 0;
+  if (end_column) *end_column = flags & CMARK_WEB_POSITION_END ? node->web_end_column : 0;
+  return flags;
+}
+
+int cmark_node_get_web_table_cells(cmark_node *node) {
+  return node ? node->web_table_cells : 0;
+}
+
+void cmark_web_position_set_start(cmark_node *node, int line, int column) {
+  node->web_start_line = line;
+  node->web_start_column = column;
+  node->web_position_flags |= CMARK_WEB_POSITION_START;
+}
+
+void cmark_web_position_set_end(cmark_node *node, int line, int column) {
+  node->web_end_line = line;
+  node->web_end_column = column;
+  node->web_position_flags |= CMARK_WEB_POSITION_END;
+}
+
 cmark_node *cmark_node_new(cmark_node_type type) {
   return cmark_node_new_with_ext(type, NULL);
 }
@@ -193,6 +221,8 @@ static void clear_reference_usage(cmark_node *node) {
 static void free_node_as(cmark_node *node) {
   node->softbreak_ending = 0;
   node->list_spread = 0;
+  node->web_position_flags = 0;
+  node->web_table_cells = 0;
   clear_reference_usage(node);
   if (node->reference_definition) {
     cmark_reference_definition *def = node->reference_definition;

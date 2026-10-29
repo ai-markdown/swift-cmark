@@ -116,6 +116,13 @@ void cmark_consolidate_text_nodes(cmark_node *root) {
         cmark_iter_next(iter); // advance pointer
         cmark_strbuf_put(&buf, tmp->as.literal.data, tmp->as.literal.len);
         cur->end_column = tmp->end_column;
+        if ((cur->web_position_flags & CMARK_WEB_POSITION_END) &&
+            (tmp->web_position_flags & CMARK_WEB_POSITION_END)) {
+          cur->web_end_line = tmp->web_end_line;
+          cur->web_end_column = tmp->web_end_column;
+        } else {
+          cur->web_position_flags = 0;
+        }
         next = tmp->next;
         cmark_node_free(tmp);
         tmp = next;

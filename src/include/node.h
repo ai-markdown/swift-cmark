@@ -95,6 +95,12 @@ struct cmark_node {
   int softbreak_ending; /* 0 absent, 10 LF, 13 CR, 0x0d0a CRLF; parser event evidence. */
   int list_spread; /* 0 not captured, 1 not spread, 2 spread; list/item parser ledger evidence. */
   int list_spread_id; /* Parser-local ledger identity; 0 when the node was never recorded. */
+  /* CMARK_OPT_WEB_POSITIONS evidence: WEB_POSITION_* flags, 1-based lines and
+   * byte columns, exclusive end. Inline nodes first hold inline-subject offsets. */
+  int web_position_flags;
+  int web_start_line, web_start_column, web_end_line, web_end_column;
+  int web_subject_start, web_subject_end;
+  int web_table_cells; /* raw cells in a table row before column truncation; 0 unknown */
   cmark_code_metadata *code_metadata;
   struct cmark_syntax_extension *task_extension;
   int task_content_line;
@@ -239,11 +245,26 @@ void cmark_list_spread_open(struct cmark_parser *parser, cmark_node *container);
 void cmark_list_spread_close(struct cmark_parser *parser, cmark_node *container);
 void cmark_list_spread_leaf(struct cmark_parser *parser, cmark_node *leaf, bool closed);
 void cmark_list_spread_prefix_only(struct cmark_parser *parser, bool prefix_only);
-void cmark_list_spread_end_line(struct cmark_parser *parser, bool has_line_ending);
+void cmark_list_spread_end_line(struct cmark_parser *parser, bool has_line_ending, int content_length);
 void cmark_list_spread_eof(struct cmark_parser *parser);
 void cmark_list_spread_unsupported(struct cmark_parser *parser);
 void cmark_list_spread_finish(struct cmark_parser *parser, cmark_node *root);
 void cmark_list_spread_free(struct cmark_parser *parser);
+void cmark_list_spread_continued(struct cmark_parser *parser, cmark_node *last_matched);
+void cmark_list_spread_leaf_prefix(struct cmark_parser *parser, cmark_node *leaf);
+void cmark_list_spread_indent(struct cmark_parser *parser, cmark_node *code, bool qualified);
+void cmark_list_spread_item_prefix(struct cmark_parser *parser, cmark_node *item, int end_column);
+
+enum {
+  CMARK_WEB_POSITION_START = 1,
+  CMARK_WEB_POSITION_END = 2,
+  /* Inline-subject offsets are pending conversion to source points. */
+  CMARK_WEB_POSITION_SUBJECT = 4,
+  /* The end offset is just after a line ending; Web places it at the next line start. */
+  CMARK_WEB_POSITION_SUBJECT_EOL = 8
+};
+void cmark_web_position_set_start(cmark_node *node, int line, int column);
+void cmark_web_position_set_end(cmark_node *node, int line, int column);
 
 #ifdef __cplusplus
 }
