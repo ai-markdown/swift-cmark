@@ -31,6 +31,7 @@ typedef struct {
   cmark_chunk info;
   cmark_chunk literal;
   uint8_t fence_length;
+  bufsize_t web_fence_length; /* Exact parser opener length, only used with WEB_CODE_SYNTAX. */
   uint8_t fence_offset;
   unsigned char fence_char;
   int8_t fenced;

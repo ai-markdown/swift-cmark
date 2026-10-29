@@ -58,6 +58,12 @@ typedef struct bracket {
 #define FLAG_SKIP_HTML_PI           (1u << 2)
 #define FLAG_SKIP_HTML_COMMENT      (1u << 3)
 
+/* Sparse run-length index: fixed 31-bit keys, no allocation by maximum run. */
+typedef struct web_tick_node {
+  size_t child[2];
+  bufsize_t position;
+} web_tick_node;
+
 typedef struct subject{
   cmark_mem *mem;
   cmark_chunk input;
@@ -71,6 +77,8 @@ typedef struct subject{
   bracket *last_bracket;
   bufsize_t backticks[MAXBACKTICKS + 1];
   bool scanned_for_backticks;
+  web_tick_node *web_tick_nodes;
+  size_t web_tick_count, web_tick_capacity;
   bufsize_t *math_last;
   bufsize_t math_capacity;
   bool math_scanned;
@@ -227,6 +235,7 @@ static void subject_from_buf(cmark_mem *mem, int line_number, int block_offset, 
     e->backticks[i] = 0;
   }
   e->scanned_for_backticks = false;
+  e->web_tick_nodes = NULL; e->web_tick_count = 0; e->web_tick_capacity = 0;
   e->math_last = NULL; e->math_capacity = 0; e->math_scanned = false; e->math_parent = NULL;
   e->no_link_openers = true;
 }
@@ -333,6 +342,73 @@ static void adjust_subj_node_newlines(subject *subj, cmark_node *node, int match
   }
 }
 
+/* Return an initialized pool index. The maximum possible key is INT32_MAX.
+ * Index zero is absent, root is one; geometrically growing pool owns only
+ * prefixes of observed lengths. Allocation is bounded by actual run keys. */
+static size_t web_tick_new_node(subject *subj) {
+  if (subj->web_tick_count == subj->web_tick_capacity) {
+    size_t old = subj->web_tick_capacity;
+    if (old > SIZE_MAX / 2) abort();
+    size_t capacity = old ? old * 2 : 16;
+    if (capacity > SIZE_MAX / sizeof(web_tick_node)) abort();
+    web_tick_node *nodes = subj->mem->realloc(subj->web_tick_nodes,
+                                             capacity * sizeof(web_tick_node));
+    if (!nodes) abort();
+    memset(nodes + old, 0, (capacity - old) * sizeof(web_tick_node));
+    subj->web_tick_nodes = nodes;
+    subj->web_tick_capacity = capacity;
+  }
+  return subj->web_tick_count++;
+}
+
+static void web_tick_record(subject *subj, bufsize_t length, bufsize_t position) {
+  if (!subj->web_tick_count) { web_tick_new_node(subj); web_tick_new_node(subj); }
+  size_t index = 1;
+  uint32_t key = (uint32_t)length;
+  for (int bit = 30; bit >= 0; bit--) {
+    unsigned direction = (key >> bit) & 1;
+    size_t child = subj->web_tick_nodes[index].child[direction];
+    if (!child) {
+      child = web_tick_new_node(subj);
+      /* Pool growth may move the array: resolve parent by index afterwards. */
+      subj->web_tick_nodes[index].child[direction] = child;
+    }
+    index = child;
+  }
+  if (subj->web_tick_nodes[index].position < position)
+    subj->web_tick_nodes[index].position = position;
+}
+
+static bufsize_t web_tick_last(subject *subj, bufsize_t length) {
+  if (!subj->web_tick_count) return 0;
+  size_t index = 1;
+  uint32_t key = (uint32_t)length;
+  for (int bit = 30; bit >= 0; bit--) {
+    index = subj->web_tick_nodes[index].child[(key >> bit) & 1];
+    if (!index) return 0;
+  }
+  return subj->web_tick_nodes[index].position;
+}
+
+/* Successful scans consume their interval; the first unsuccessful scan visits
+ * the remaining suffix once and records every run. Later failed lookups take
+ * at most 31 steps. No repeated suffix scan for absent or exhausted lengths. */
+static bufsize_t scan_to_closing_web_backticks(subject *subj, bufsize_t length) {
+  if (subj->scanned_for_backticks && web_tick_last(subj, length) <= subj->pos)
+    return 0;
+  for (;;) {
+    unsigned char c;
+    while ((c = peek_char(subj)) && c != '`') advance(subj);
+    if (is_eof(subj)) break;
+    bufsize_t count = 0;
+    while (peek_char(subj) == '`') { advance(subj); count++; }
+    web_tick_record(subj, count, subj->pos - count);
+    if (count == length) return subj->pos;
+  }
+  subj->scanned_for_backticks = true;
+  return 0;
+}
+
 // Try to process a backtick code span that began with a
 // span of ticks of length openticklength length (already
 // parsed).  Return 0 if you don't find matching closing
@@ -421,7 +497,9 @@ static cmark_node *handle_backticks(subject *subj, int options) {
   bufsize_t initpos = subj->pos;
   cmark_chunk openticks = take_while(subj, isbacktick);
   bufsize_t startpos = subj->pos;
-  bufsize_t endpos = scan_to_closing_backticks(subj, openticks.len);
+  bufsize_t endpos = (options & CMARK_OPT_WEB_CODE_SYNTAX)
+      ? scan_to_closing_web_backticks(subj, openticks.len)
+      : scan_to_closing_backticks(subj, openticks.len);
 
   if (endpos == 0) {      // not found
     subj->pos = startpos; // rewind
@@ -2073,6 +2151,7 @@ void cmark_parse_inlines(cmark_parser *parser,
     ;
 
   subj.mem->free(subj.math_last);
+  if (subj.web_tick_nodes) subj.mem->free(subj.web_tick_nodes);
   process_emphasis(parser, &subj, 0);
   if (task && parent->first_child && parent->first_child->type == CMARK_NODE_TEXT) {
     math_source_point(&subj, task_body, &parent->start_line, &parent->start_column);

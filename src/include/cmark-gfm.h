@@ -827,6 +827,9 @@ char *cmark_render_latex_with_mem(cmark_node *root, int options, int width, cmar
 /** Capture source-based Web code fields; legacy display literals are unchanged. */
 #define CMARK_OPT_CODE_METADATA (1 << 29)
 
+/** Opt-in Web code delimiter lengths without the legacy 80/255 limits. */
+#define CMARK_OPT_WEB_CODE_SYNTAX (1 << 30)
+
 CMARK_GFM_EXPORT int cmark_node_get_code_metadata_kind(cmark_node *node);
 CMARK_GFM_EXPORT const char *cmark_node_get_code_metadata_value(cmark_node *node);
 CMARK_GFM_EXPORT const char *cmark_node_get_code_metadata_info(cmark_node *node);

@@ -1260,7 +1260,10 @@ static bool parse_code_block_prefix(cmark_parser *parser, cmark_chunk *input,
       matched = scan_close_code_fence(input, parser->first_nonspace);
     }
 
-    if (matched >= container->as.code.fence_length) {
+    bufsize_t required = ((parser->options & CMARK_OPT_WEB_CODE_SYNTAX) &&
+        container->as.code.web_fence_length > 0)
+        ? container->as.code.web_fence_length : container->as.code.fence_length;
+    if (matched >= required) {
       // closing fence - and since we're at
       // the end of a line, we can stop processing it:
       *should_continue = false;
@@ -1535,9 +1538,12 @@ static void open_new_blocks(cmark_parser *parser, cmark_node **container,
       (*container)->as.code.fenced = true;
       (*container)->as.code.fence_char = peek_at(input, parser->first_nonspace);
       (*container)->as.code.fence_length = (matched > 255) ? 255 : (uint8_t)matched;
-      /* The legacy parser caps fence runs at 255: do not claim metadata for
-       * a token whose source closing behavior is outside that grammar. */
-      if ((parser->options & CMARK_OPT_CODE_METADATA) && matched <= 255) cmark_code_metadata_start(*container, 1);
+      if (parser->options & CMARK_OPT_WEB_CODE_SYNTAX) (*container)->as.code.web_fence_length = matched;
+      /* Metadata for a long opener requires the exact Web closing grammar.
+       * Legacy mode still rejects metadata beyond its 255-character cap. */
+      if ((parser->options & CMARK_OPT_CODE_METADATA) &&
+          (matched <= 255 || (parser->options & CMARK_OPT_WEB_CODE_SYNTAX)))
+        cmark_code_metadata_start(*container, 1);
       (*container)->as.code.fence_offset =
           (int8_t)((parser->options & CMARK_OPT_DEFINITION_LISTS) ? parser->indent : parser->first_nonspace - parser->offset);
       (*container)->as.code.info = cmark_chunk_literal("");

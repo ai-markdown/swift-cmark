@@ -766,6 +766,7 @@ int cmark_node_set_fenced(cmark_node * node, int fenced,
 
   if ((node->type == CMARK_NODE_CODE_BLOCK || node->type == CMARK_NODE_MATH_BLOCK)) {
     cmark_code_metadata_clear(node);
+    node->as.code.web_fence_length = 0; /* A mutation is not a parser opener. */
     node->as.code.fenced = (int8_t)fenced;
     node->as.code.fence_length = (uint8_t)length;
     node->as.code.fence_offset = (uint8_t)offset;
