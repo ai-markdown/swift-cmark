@@ -257,6 +257,18 @@ static int S_render_node(cmark_html_renderer *renderer, cmark_node *node,
     }
     break;
 
+  case CMARK_NODE_MATH_BLOCK:
+    cmark_html_render_cr(html);
+    cmark_strbuf_puts(html, "<pre><code class=\"language-math math-display\">");
+    escape_html(html, node->as.code.literal.data, node->as.code.literal.len);
+    cmark_strbuf_puts(html, "</code></pre>\n");
+    break;
+  case CMARK_NODE_MATH_INLINE:
+    cmark_strbuf_puts(html, "<code class=\"language-math math-inline\">");
+    escape_html(html, node->as.literal.data, node->as.literal.len);
+    cmark_strbuf_puts(html, "</code>");
+    break;
+
   case CMARK_NODE_CODE_BLOCK:
     cmark_html_render_cr(html);
 

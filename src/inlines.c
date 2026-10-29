@@ -70,6 +70,10 @@ typedef struct subject{
   bracket *last_bracket;
   bufsize_t backticks[MAXBACKTICKS + 1];
   bool scanned_for_backticks;
+  bufsize_t *math_last;
+  bufsize_t math_capacity;
+  bool math_scanned;
+  cmark_node *math_parent;
   bool no_link_openers;
 } subject;
 
@@ -213,6 +217,7 @@ static void subject_from_buf(cmark_mem *mem, int line_number, int block_offset, 
     e->backticks[i] = 0;
   }
   e->scanned_for_backticks = false;
+  e->math_last = NULL; e->math_capacity = 0; e->math_scanned = false; e->math_parent = NULL;
   e->no_link_openers = true;
 }
 
@@ -473,6 +478,93 @@ static void web_emphasis_flanking(subject *subj, int32_t previous,
                (before_punctuation && (after_space_or_punctuation || (after & 0x1000))) || marker_before;
   *can_open = marker == '*' ? open : open && ((before & 3) || !close);
   *can_close = marker == '*' ? close : close && ((after & 3) || !open);
+}
+
+static void math_cache_run(subject *subj, bufsize_t length, bufsize_t position) {
+  if (length >= subj->math_capacity) {
+    bufsize_t old = subj->math_capacity;
+    bufsize_t capacity = old ? old : 16;
+    while (capacity <= length) capacity = capacity > subj->input.len / 2 ? subj->input.len + 1 : capacity * 2;
+    subj->math_last = subj->mem->realloc(subj->math_last, (size_t)capacity * sizeof(bufsize_t));
+    memset(subj->math_last + old, 0, (size_t)(capacity - old) * sizeof(bufsize_t));
+    subj->math_capacity = capacity;
+  }
+  if (subj->math_last[length] < position) subj->math_last[length] = position;
+}
+
+static const cmark_math_line *math_line_at(subject *subj, bufsize_t offset) {
+  cmark_node *parent = subj->math_parent;
+  if (!parent || !parent->math_line_count) return NULL;
+  size_t lo = 0, hi = parent->math_line_count;
+  while (lo < hi) {
+    size_t mid = lo + (hi - lo) / 2;
+    if (parent->math_lines[mid].offset <= offset) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo ? &parent->math_lines[lo - 1] : NULL;
+}
+
+static void math_source_point(subject *subj, bufsize_t offset, int *line, int *column) {
+  const cmark_math_line *row = math_line_at(subj, offset);
+  if (row) { *line = row->line; *column = row->column + offset - row->offset; }
+}
+
+static cmark_node *handle_math(subject *subj, int options) {
+  bufsize_t start = subj->pos;
+  while (peek_char(subj) == '$') advance(subj);
+  bufsize_t length = subj->pos - start;
+  bufsize_t body = subj->pos;
+  bool previous_literal_dollar = start > 0 && subj->input.data[start - 1] == '$';
+  if (previous_literal_dollar) {
+    bufsize_t j = start - 1;
+    while (j > 0 && subj->input.data[j - 1] == '\\') j--;
+    if ((start - 1 - j) % 2) previous_literal_dollar = false;
+  }
+  if (length < 2 || previous_literal_dollar ||
+      (subj->math_scanned && (length >= subj->math_capacity || subj->math_last[length] <= body)))
+    return make_str(subj, start, body - 1, cmark_chunk_dup(&subj->input, start, length));
+  bufsize_t close = body;
+  while (close < subj->input.len) {
+    if (subj->input.data[close] != '$') { close++; continue; }
+    bufsize_t end = close;
+    while (end < subj->input.len && subj->input.data[end] == '$') end++;
+    math_cache_run(subj, end - close, close);
+    if (end - close == length) {
+      cmark_strbuf value = CMARK_BUF_INIT(subj->mem);
+      bool data = false;
+      for (bufsize_t i = body; i < close; i++) {
+        unsigned char c = subj->input.data[i];
+        if (c == '\n') {
+          const cmark_math_line *row = math_line_at(subj, i);
+          int ending = row ? row->ending : 10;
+          if (ending != 10 && ending != 0) cmark_strbuf_putc(&value, '\r');
+          if (ending != 13) cmark_strbuf_putc(&value, '\n');
+          const cmark_math_line *next = math_line_at(subj, i + 1);
+          if (next && next != row) cmark_strbuf_put(&value, next->prefix.data, next->prefix.len);
+        } else { if (c != ' ' && c != '\r') data = true; cmark_strbuf_putc(&value, c); }
+      }
+      bool first_padding = value.size && (value.ptr[0] == ' ' || S_is_line_end_char(value.ptr[0]));
+      bool last_padding = value.size && (value.ptr[value.size - 1] == ' ' || S_is_line_end_char(value.ptr[value.size - 1]));
+      if (data && first_padding && last_padding) {
+        int head = value.ptr[0] == '\r' && value.size > 1 && value.ptr[1] == '\n' ? 2 : 1;
+        int tail = value.ptr[value.size - 1] == '\n' && value.size > 1 && value.ptr[value.size - 2] == '\r' ? 2 : 1;
+        cmark_strbuf_drop(&value, head); cmark_strbuf_truncate(&value, value.size - tail);
+      }
+      subj->pos = end;
+      cmark_node *node = make_literal(subj, CMARK_NODE_MATH_INLINE, start, end - 1, cmark_chunk_buf_detach(&value));
+      adjust_subj_node_newlines(subj, node, end - start, 0, options);
+      if (options & CMARK_OPT_SOURCEPOS) {
+        math_source_point(subj, start, &node->start_line, &node->start_column);
+        int line = node->end_line, column = node->end_column + 1;
+        math_source_point(subj, end, &line, &column);
+        node->end_line = line; node->end_column = column - 1;
+      }
+      return node;
+    }
+    close = end;
+  }
+  subj->math_scanned = true;
+  return make_str(subj, start, body - 1, cmark_chunk_dup(&subj->input, start, length));
 }
 
 // Scan ***, **, or * and return number scanned, or 0.
@@ -1644,6 +1736,7 @@ static bufsize_t subject_find_special_char(cmark_parser *parser, subject *subj, 
   bufsize_t n = subj->pos + 1;
 
   while (n < subj->input.len) {
+    if ((options & CMARK_OPT_MATH) && subj->input.data[n] == '$') return n;
     if (parser->special_chars[subj->input.data[n]])
       return n;
     if (options & CMARK_OPT_SMART && SMART_PUNCT_CHARS[subj->input.data[n]])
@@ -1722,8 +1815,22 @@ static int parse_inline(cmark_parser *parser, subject *subj, cmark_node *parent,
       new_inl = handle_newline(subj);
     }
     break;
+  case '$':
+    if (options & CMARK_OPT_MATH) new_inl = handle_math(subj, options);
+    break;
   case '`':
     new_inl = handle_backticks(subj, options);
+    if ((options & CMARK_OPT_MATH) && new_inl->type == CMARK_NODE_CODE &&
+        strcmp(cmark_node_get_type_string(parent), "table_cell") == 0) {
+      cmark_chunk *literal = &new_inl->as.literal;
+      bufsize_t w = 0;
+      for (bufsize_t r = 0; r < literal->len; r++) {
+        if (literal->data[r] == '\\' && r + 1 < literal->len && literal->data[r + 1] == '|') r++;
+        literal->data[w++] = literal->data[r];
+      }
+      literal->len = w;
+      if (literal->alloc) literal->data[w] = 0;
+    }
     break;
   case '\\':
     new_inl = handle_backslash(parser, subj);
@@ -1814,12 +1921,14 @@ void cmark_parse_inlines(cmark_parser *parser,
   subject subj;
   cmark_chunk content = {parent->content.ptr, parent->content.size, 0};
   subject_from_buf(parser->mem, parent->start_line, parent->start_column - 1 + parent->internal_offset, &subj, &content, refmap);
+  subj.math_parent = parent;
   if ((options & CMARK_OPT_PRESERVE_WHITESPACE) == 0)
     cmark_chunk_rtrim(&subj.input);
 
   while (!is_eof(&subj) && parse_inline(parser, &subj, parent, options))
     ;
 
+  subj.mem->free(subj.math_last);
   process_emphasis(parser, &subj, 0);
   // free bracket and delim stack
   while (subj.last_delim) {

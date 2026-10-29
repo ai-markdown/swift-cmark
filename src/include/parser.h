@@ -54,6 +54,10 @@ struct cmark_parser {
   /* Options set by the user, see the Options section in cmark.h */
   int options;
   bool last_buffer_ended_with_cr;
+  bool math_last_line_ending;
+  int math_current_ending;
+  int math_inline_prefix;
+  cmark_node *math_eol_target;
   size_t total_size;
   cmark_llist *syntax_extensions;
   cmark_llist *inline_syntax_extensions;

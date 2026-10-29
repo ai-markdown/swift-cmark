@@ -221,7 +221,7 @@ static int increment_cell_rowspan(cmark_node *node) {
   return 1;
 }
 
-static cmark_strbuf *unescape_pipes(cmark_mem *mem, unsigned char *string, bufsize_t len)
+static cmark_strbuf *unescape_pipes(cmark_mem *mem, unsigned char *string, bufsize_t len, bool preserve)
 {
   cmark_strbuf *res = (cmark_strbuf *)mem->calloc(1, sizeof(cmark_strbuf));
   bufsize_t r, w;
@@ -231,7 +231,7 @@ static cmark_strbuf *unescape_pipes(cmark_mem *mem, unsigned char *string, bufsi
   cmark_strbuf_putc(res, '\0');
 
   for (r = 0, w = 0; r < len; ++r) {
-    if (res->ptr[r] == '\\' && res->ptr[r + 1] == '|')
+    if (!preserve && res->ptr[r] == '\\' && res->ptr[r + 1] == '|')
       r++;
 
     res->ptr[w++] = res->ptr[r];
@@ -298,7 +298,7 @@ static table_row *row_from_string(cmark_syntax_extension *self,
       // content and cell_matched, or (2) we found an empty cell followed by a
       // pipe.
       cmark_strbuf *cell_buf = unescape_pipes(parser->mem, string + offset,
-          cell_matched);
+          cell_matched, (parser->options & CMARK_OPT_MATH) != 0);
       cmark_strbuf_trim(cell_buf);
 
       node_cell *cell = append_row_cell(parser->mem, row);
@@ -408,7 +408,7 @@ static void try_inserting_table_header_paragraph(cmark_parser *parser,
 
   paragraph = cmark_node_new_with_mem(CMARK_NODE_PARAGRAPH, parser->mem);
 
-  paragraph_content = unescape_pipes(parser->mem, parent_string, paragraph_offset);
+  paragraph_content = unescape_pipes(parser->mem, parent_string, paragraph_offset, (parser->options & CMARK_OPT_MATH) != 0);
   cmark_strbuf_trim(paragraph_content);
   cmark_node_set_string_content(paragraph, (char *) paragraph_content->ptr);
   cmark_strbuf_free(paragraph_content);
@@ -697,7 +697,7 @@ static int can_contain(cmark_syntax_extension *extension, cmark_node *node,
   } else if (node->type == CMARK_NODE_TABLE_ROW) {
     return child_type == CMARK_NODE_TABLE_CELL;
   } else if (node->type == CMARK_NODE_TABLE_CELL) {
-    return child_type == CMARK_NODE_TEXT || child_type == CMARK_NODE_CODE ||
+    return child_type == CMARK_NODE_MATH_INLINE || child_type == CMARK_NODE_TEXT || child_type == CMARK_NODE_CODE ||
            child_type == CMARK_NODE_EMPH || child_type == CMARK_NODE_STRONG ||
            child_type == CMARK_NODE_LINK || child_type == CMARK_NODE_IMAGE || child_type == CMARK_NODE_ATTRIBUTE ||
            child_type == CMARK_NODE_STRIKETHROUGH || child_type == CMARK_NODE_HIGHLIGHT ||

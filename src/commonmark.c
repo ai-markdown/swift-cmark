@@ -292,6 +292,31 @@ static int S_render_node(cmark_renderer *renderer, cmark_node *node,
     }
     break;
 
+  case CMARK_NODE_MATH_BLOCK: {
+    const char *value = cmark_node_get_literal(node);
+    int longest = 0, run = 0;
+    for (const char *p = value; *p; p++) { if (*p == '$') { run++; if (run > longest) longest = run; } else run = 0; }
+    int size = longest + 1 > 2 ? longest + 1 : 2;
+    BLANKLINE();
+    for (int i = 0; i < size; i++) LIT("$");
+    if (node->as.code.info.len) { LIT(" "); OUT(cmark_node_get_fence_info(node), false, LITERAL); }
+    CR(); OUT(value, false, LITERAL); CR();
+    for (int i = 0; i < size; i++) LIT("$");
+    BLANKLINE();
+    break;
+  }
+  case CMARK_NODE_MATH_INLINE: {
+    const char *value = cmark_node_get_literal(node);
+    int longest = 0, run = 0;
+    for (const char *p = value; *p; p++) { if (*p == '$') { run++; if (run > longest) longest = run; } else run = 0; }
+    int size = longest + 1 > 2 ? longest + 1 : 2;
+    bool pad = value[0] == ' ' && strlen(value) > 0 && value[strlen(value) - 1] == ' ';
+    for (int i = 0; i < size; i++) LIT("$");
+    if (pad) LIT(" "); OUT(value, false, LITERAL); if (pad) LIT(" ");
+    for (int i = 0; i < size; i++) LIT("$");
+    break;
+  }
+
   case CMARK_NODE_CODE_BLOCK:
     first_in_list_item = node->prev == NULL && node->parent &&
                          node->parent->type == CMARK_NODE_ITEM;

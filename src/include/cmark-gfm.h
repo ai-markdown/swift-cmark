@@ -57,6 +57,7 @@ typedef enum {
   CMARK_NODE_DEFINITION_LIST = CMARK_NODE_TYPE_BLOCK | 0x000c,
   CMARK_NODE_DEFINITION_TERM = CMARK_NODE_TYPE_BLOCK | 0x000d,
   CMARK_NODE_DEFINITION_DESCRIPTION = CMARK_NODE_TYPE_BLOCK | 0x000e,
+  CMARK_NODE_MATH_BLOCK = CMARK_NODE_TYPE_BLOCK | 0x000f,
 
   /* Inline */
   CMARK_NODE_TEXT          = CMARK_NODE_TYPE_INLINE | 0x0001,
@@ -71,6 +72,7 @@ typedef enum {
   CMARK_NODE_IMAGE         = CMARK_NODE_TYPE_INLINE | 0x000a,
   CMARK_NODE_FOOTNOTE_REFERENCE = CMARK_NODE_TYPE_INLINE | 0x000b,
   CMARK_NODE_ATTRIBUTE          = CMARK_NODE_TYPE_INLINE | 0x000c,
+  CMARK_NODE_MATH_INLINE = CMARK_NODE_TYPE_INLINE | 0x000d,
 } cmark_node_type;
 
 extern cmark_node_type CMARK_NODE_LAST_BLOCK;
@@ -810,6 +812,9 @@ char *cmark_render_latex_with_mem(cmark_node *root, int options, int width, cmar
 
 /** Observe raw adjacent characters for Web-compatible asterisk/underscore emphasis. */
 #define CMARK_OPT_WEB_EMPHASIS (1 << 23)
+
+/** Opt-in math grammar matching remark-math singleDollarTextMath=false. */
+#define CMARK_OPT_MATH (1 << 25)
 
 /** Only parse strikethroughs if surrounded by exactly 2 tildes.
  * Gives some compatibility with redcarpet.

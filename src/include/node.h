@@ -65,6 +65,12 @@ enum cmark_node__internal_flags {
 
 typedef uint16_t cmark_node_internal_flags;
 
+typedef struct {
+  bufsize_t offset;
+  int line, column, ending;
+  cmark_chunk prefix;
+} cmark_math_line;
+
 struct cmark_node {
   cmark_strbuf content;
 
@@ -102,6 +108,10 @@ struct cmark_node {
     bool single_line;
     int term_start_column;
   } definition;
+  int math_fence_length;
+  bool math_closing_fence;
+  cmark_math_line *math_lines;
+  size_t math_line_count, math_line_capacity;
 
   cmark_syntax_extension *extension;
 

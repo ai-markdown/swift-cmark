@@ -217,7 +217,7 @@ static bool is_blank(cmark_strbuf *s, bufsize_t offset) {
 static inline bool accepts_lines(cmark_node_type block_type) {
   return (block_type == CMARK_NODE_PARAGRAPH ||
           block_type == CMARK_NODE_HEADING ||
-          block_type == CMARK_NODE_CODE_BLOCK);
+          block_type == CMARK_NODE_CODE_BLOCK || block_type == CMARK_NODE_MATH_BLOCK);
 }
 
 static inline bool contains_inlines(cmark_node *node) {
@@ -249,8 +249,32 @@ static void add_line(cmark_node *node, cmark_chunk *ch, cmark_parser *parser) {
       cmark_strbuf_putc(&node->content, ' ');
     }
   }
+  if ((parser->options & CMARK_OPT_MATH) &&
+      (node->type == CMARK_NODE_PARAGRAPH || node->type == CMARK_NODE_HEADING)) {
+    if (node->math_line_count == node->math_line_capacity) {
+      node->math_line_capacity = node->math_line_capacity ? node->math_line_capacity * 2 : 8;
+      node->math_lines = parser->mem->realloc(node->math_lines, node->math_line_capacity * sizeof(cmark_math_line));
+    }
+    cmark_math_line *line = &node->math_lines[node->math_line_count++];
+    line->offset = node->content.size;
+    line->line = parser->line_number;
+    line->column = parser->offset + 1;
+    line->ending = parser->math_current_ending;
+    int prefix = parser->math_inline_prefix;
+    line->prefix = cmark_chunk_dup(ch, parser->offset - prefix, prefix);
+    // Own the prefix: the parser's current-line storage is reused next line.
+    cmark_chunk_to_cstr(parser->mem, &line->prefix);
+    parser->math_eol_target = node;
+  }
   cmark_strbuf_put(&node->content, ch->data + parser->offset,
                    ch->len - parser->offset);
+  if (node->type == CMARK_NODE_MATH_BLOCK && node->content.size && parser->math_current_ending != 0) {
+    cmark_strbuf_truncate(&node->content, node->content.size - 1);
+    if (parser->math_current_ending != 10) cmark_strbuf_putc(&node->content, '\r');
+    if (parser->math_current_ending != 13) cmark_strbuf_putc(&node->content, '\n');
+    parser->math_eol_target = node;
+  }
+
 }
 
 static void remove_trailing_blank_lines(cmark_strbuf *ln) {
@@ -316,7 +340,24 @@ static bool resolve_reference_link_definitions(
     }
     b->start_column = 1;
   }
-  cmark_strbuf_drop(node_content, (node_content->size - chunk.len));
+  bufsize_t dropped = node_content->size - chunk.len;
+  if (dropped && b->math_line_count) {
+    size_t out = 0;
+    for (size_t i = 0; i < b->math_line_count; i++) {
+      cmark_math_line row = b->math_lines[i];
+      bufsize_t next = i + 1 < b->math_line_count ? b->math_lines[i + 1].offset : node_content->size;
+      if (next <= dropped) { cmark_chunk_free(parser->mem, &row.prefix); continue; }
+      if (row.offset < dropped) {
+        row.column += dropped - row.offset;
+        row.offset = 0;
+        cmark_chunk_free(parser->mem, &row.prefix);
+        row.prefix = cmark_chunk_literal("");
+      } else row.offset -= dropped;
+      b->math_lines[out++] = row;
+    }
+    b->math_line_count = out;
+  }
+  cmark_strbuf_drop(node_content, dropped);
   return !is_blank(&b->content, 0);
 }
 
@@ -341,6 +382,7 @@ static cmark_node *finalize(cmark_parser *parser, cmark_node *b) {
     b->end_column = parser->last_line_length;
   } else if (S_type(b) == CMARK_NODE_DOCUMENT ||
              (S_type(b) == CMARK_NODE_CODE_BLOCK && b->as.code.fenced) ||
+             (S_type(b) == CMARK_NODE_MATH_BLOCK && b->math_closing_fence) ||
              (S_type(b) == CMARK_NODE_HEADING && b->as.heading.setext) ||
              (parser->line_number - 1 < b->end_line)) {
     b->end_line = parser->line_number;
@@ -363,6 +405,25 @@ static cmark_node *finalize(cmark_parser *parser, cmark_node *b) {
   }
   cmark_strbuf *node_content = &b->content;
 
+  if (S_type(b) == CMARK_NODE_MATH_BLOCK && parser->curline.size == 0 &&
+      !b->math_closing_fence && parser->math_last_line_ending) {
+    b->end_line = parser->line_number + 1;
+    b->end_column = 0; // exclusive EOF is column 1 of the following line
+  }
+
+  if (S_type(b) == CMARK_NODE_MATH_BLOCK && !b->math_closing_fence) {
+    // A following list item/list is a non-lazy container boundary. The newline
+    // belongs to math, but none of that next line's quote/list prefixes do.
+    for (cmark_node *owner = b->parent; owner; owner = owner->parent) {
+      cmark_node *next = owner->next;
+      if (next && next->start_line == parser->line_number &&
+          ((owner->type == CMARK_NODE_ITEM && next->type == CMARK_NODE_ITEM) ||
+           (owner->type == CMARK_NODE_LIST && next->type == CMARK_NODE_LIST))) {
+        b->end_line = parser->line_number; b->end_column = 0; break;
+      }
+    }
+  }
+
   switch (S_type(b)) {
   case CMARK_NODE_PARAGRAPH:
   {
@@ -371,6 +432,36 @@ static cmark_node *finalize(cmark_parser *parser, cmark_node *b) {
       // remove blank node (former reference def)
       cmark_node_free(b);
     }
+    break;
+  }
+
+  case CMARK_NODE_MATH_BLOCK: {
+    // First content line is the meta string. Keep trailing spaces: unlike code info,
+    // math meta is not trimmed by mdast-util-math.
+    for (pos = 0; pos < node_content->size && !S_is_line_end_char(node_content->ptr[pos]); pos++) {}
+    cmark_strbuf meta = CMARK_BUF_INIT(parser->mem);
+    // String-token semantics: decode source escapes/entities left to right.
+    // An entity-generated backslash must not escape a later source character.
+    for (bufsize_t i = 0; i < pos; i++) {
+      unsigned char c = node_content->ptr[i];
+      if (c == '\\' && i + 1 < pos && cmark_ispunct(node_content->ptr[i + 1])) {
+        cmark_strbuf_putc(&meta, node_content->ptr[++i]);
+      } else if (c == '&') {
+        bufsize_t consumed = houdini_unescape_ent(&meta, node_content->ptr + i + 1, pos - i - 1);
+        if (consumed) i += consumed;
+        else cmark_strbuf_putc(&meta, c);
+      } else cmark_strbuf_putc(&meta, c);
+    }
+    b->as.code.info = cmark_chunk_buf_detach(&meta);
+    if (pos < node_content->size && node_content->ptr[pos] == '\r') pos++;
+    if (pos < node_content->size && node_content->ptr[pos] == '\n') pos++;
+    cmark_strbuf_drop(node_content, pos);
+    // Math value excludes only its last source line ending, retaining internal raw EOLs.
+    if (node_content->size && node_content->ptr[node_content->size - 1] == '\n') {
+      cmark_strbuf_truncate(node_content, node_content->size - 1);
+      if (node_content->size && node_content->ptr[node_content->size - 1] == '\r') cmark_strbuf_truncate(node_content, node_content->size - 1);
+    } else if (node_content->size && node_content->ptr[node_content->size - 1] == '\r') cmark_strbuf_truncate(node_content, node_content->size - 1);
+    b->as.code.literal = cmark_chunk_buf_detach(node_content);
     break;
   }
 
@@ -802,6 +893,9 @@ static void S_parser_feed(cmark_parser *parser, const unsigned char *buffer,
 
   if (parser->last_buffer_ended_with_cr && *buffer == '\n') {
     // skip NL if last buffer ended with CR ; see #117
+    cmark_node *target = parser->math_eol_target;
+    if (target && target->type == CMARK_NODE_MATH_BLOCK) cmark_strbuf_putc(&target->content, '\n');
+    else if (target && target->math_line_count) target->math_lines[target->math_line_count - 1].ending = 0x0d0a;
     buffer++;
   }
   parser->last_buffer_ended_with_cr = false;
@@ -824,6 +918,8 @@ static void S_parser_feed(cmark_parser *parser, const unsigned char *buffer,
 
     chunk_len = (bufsize_t)(eol - buffer);
     if (process) {
+      parser->math_last_line_ending = eol < end && S_is_line_end_char(*eol);
+      parser->math_current_ending = !parser->math_last_line_ending ? 0 : *eol == '\n' ? 10 : eol + 1 < end && eol[1] == '\n' ? 0x0d0a : 13;
       if (parser->linebuf.size > 0) {
         cmark_strbuf_put(&parser->linebuf, buffer, chunk_len);
         parser->definition_synthetic_ending = eol == end;
@@ -1084,6 +1180,36 @@ static bool parse_code_block_prefix(cmark_parser *parser, cmark_chunk *input,
   return res;
 }
 
+static bufsize_t math_fence(cmark_chunk *input, bufsize_t start, bool closing) {
+  bufsize_t end = start;
+  while (end < input->len && input->data[end] == '$') end++;
+  bufsize_t count = end - start;
+  if (count < 2) return 0;
+  while (end < input->len && !S_is_line_end_char(input->data[end])) {
+    if (closing ? !S_is_space_or_tab(input->data[end]) : input->data[end] == '$') return 0;
+    end++;
+  }
+  return count;
+}
+
+static bool parse_math_prefix(cmark_parser *parser, cmark_chunk *input,
+                              cmark_node *container, bool *should_continue) {
+  bufsize_t matched = parser->indent <= 3 ? math_fence(input, parser->first_nonspace, true) : 0;
+  if (matched >= container->math_fence_length && matched > 0) {
+    container->math_closing_fence = true; // finalize this line, not the previous line
+    *should_continue = false;
+    S_advance_offset(parser, input, parser->first_nonspace + matched - parser->offset, false);
+    parser->current = finalize(parser, container);
+    return false;
+  }
+  int indent = container->as.code.fence_offset;
+  while (indent > 0 && S_is_space_or_tab(peek_at(input, parser->offset))) {
+    S_advance_offset(parser, input, 1, true);
+    indent--;
+  }
+  return true;
+}
+
 static bool parse_html_block_prefix(cmark_parser *parser,
                                     cmark_node *container) {
   bool res = false;
@@ -1181,6 +1307,9 @@ static cmark_node *check_open_blocks(cmark_parser *parser, cmark_chunk *input,
       if (!parse_node_item_prefix(parser, input, container))
         goto done;
       break;
+    case CMARK_NODE_MATH_BLOCK:
+      if (!parse_math_prefix(parser, input, container, &should_continue)) goto done;
+      break;
     case CMARK_NODE_CODE_BLOCK:
       if (!parse_code_block_prefix(parser, input, container, &should_continue))
         goto done;
@@ -1239,7 +1368,8 @@ static void open_new_blocks(cmark_parser *parser, cmark_node **container,
   int save_column;
   size_t depth = 0;
 
-  while (cont_type != CMARK_NODE_CODE_BLOCK &&
+  while (cont_type != CMARK_NODE_MATH_BLOCK &&
+         cont_type != CMARK_NODE_CODE_BLOCK &&
          cont_type != CMARK_NODE_HTML_BLOCK) {
     depth++;
     S_find_first_nonspace(parser, input);
@@ -1281,6 +1411,16 @@ static void open_new_blocks(cmark_parser *parser, cmark_node **container,
       (*container)->as.heading.setext = false;
       (*container)->internal_offset = matched;
 
+    } else if (!indented && (parser->options & CMARK_OPT_MATH) &&
+               (matched = math_fence(input, parser->first_nonspace, false))) {
+      *container = add_child(parser, *container, CMARK_NODE_MATH_BLOCK, parser->first_nonspace + 1);
+      (*container)->math_fence_length = matched;
+      (*container)->as.code.fenced = 1;
+      (*container)->as.code.fence_offset = parser->first_nonspace - parser->offset;
+      (*container)->as.code.info = cmark_chunk_literal("");
+      S_advance_offset(parser, input, parser->first_nonspace + matched - parser->offset, false);
+      // factorySpace before meta accepts spaces and tabs, not arbitrary Unicode whitespace.
+      while (S_is_space_or_tab(peek_at(input, parser->offset))) S_advance_offset(parser, input, 1, false);
     } else if (!indented && (matched = scan_open_code_fence(
                                  input, parser->first_nonspace))) {
       *container = add_child(parser, *container, CMARK_NODE_CODE_BLOCK,
@@ -1471,6 +1611,7 @@ static void add_text_to_container(cmark_parser *parser, cmark_node *container,
       (parser->blank && ctype != CMARK_NODE_BLOCK_QUOTE &&
        ctype != CMARK_NODE_HEADING && ctype != CMARK_NODE_THEMATIC_BREAK &&
        !(ctype == CMARK_NODE_CODE_BLOCK && container->as.code.fenced) &&
+       ctype != CMARK_NODE_MATH_BLOCK &&
        !(ctype == CMARK_NODE_ITEM && container->first_child == NULL &&
          container->start_line == parser->line_number));
 
@@ -1504,7 +1645,7 @@ static void add_text_to_container(cmark_parser *parser, cmark_node *container,
       assert(parser->current != NULL);
     }
 
-    if (S_type(container) == CMARK_NODE_CODE_BLOCK) {
+    if (S_type(container) == CMARK_NODE_CODE_BLOCK || S_type(container) == CMARK_NODE_MATH_BLOCK) {
       add_line(container, input, parser);
     } else if (S_type(container) == CMARK_NODE_HTML_BLOCK) {
       add_line(container, input, parser);
@@ -1553,9 +1694,10 @@ static void add_text_to_container(cmark_parser *parser, cmark_node *container,
         chop_trailing_hashtags(input);
       }
       if ((parser->options & CMARK_OPT_PRESERVE_WHITESPACE) == 0 &&
-          !((parser->options & CMARK_OPT_DEFINITION_LISTS) && container->type == CMARK_NODE_PARAGRAPH && container->content.size > 0))
-        S_advance_offset(parser, input, parser->first_nonspace - parser->offset,
-                       false);
+          !((parser->options & CMARK_OPT_DEFINITION_LISTS) && container->type == CMARK_NODE_PARAGRAPH && container->content.size > 0)) {
+        parser->math_inline_prefix = parser->first_nonspace - parser->offset;
+        S_advance_offset(parser, input, parser->first_nonspace - parser->offset, false);
+      }
       add_line(container, input, parser);
     } else {
       // create paragraph container for line
@@ -1762,6 +1904,8 @@ static void S_process_line(cmark_parser *parser, const unsigned char *buffer,
   cmark_node *current;
 
   cmark_strbuf_clear(&parser->curline);
+  parser->math_inline_prefix = 0;
+  parser->math_eol_target = NULL;
 
   if (parser->options & CMARK_OPT_VALIDATE_UTF8)
     cmark_utf8proc_check(&parser->curline, buffer, bytes);
@@ -1852,6 +1996,8 @@ cmark_node *cmark_parser_finish(cmark_parser *parser) {
 
   if (parser->linebuf.size) {
     parser->definition_synthetic_ending = true;
+    parser->math_last_line_ending = false;
+    parser->math_current_ending = 0;
     S_process_line(parser, parser->linebuf.ptr, parser->linebuf.size, (parser->options & CMARK_OPT_PRESERVE_WHITESPACE) == 0);
     cmark_strbuf_clear(&parser->linebuf);
   }
