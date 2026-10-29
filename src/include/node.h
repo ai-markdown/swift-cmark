@@ -85,6 +85,23 @@ struct cmark_node {
   uint16_t type;
   cmark_node_internal_flags flags;
   int backtick_count;
+  struct {
+    int padding;
+    int blank_lines;
+    bool initial_blank;
+    bool spread;
+    bool hardbreak;
+    int lazy_offset;
+    int lazy_line;
+    int lazy_column;
+    int flow_offset;
+    int flow_line;
+    int flow_column;
+    bool no_reference;
+    bool interrupt;
+    bool single_line;
+    int term_start_column;
+  } definition;
 
   cmark_syntax_extension *extension;
 

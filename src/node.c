@@ -77,7 +77,11 @@ bool cmark_node_can_contain_type(cmark_node *node, cmark_node_type child_type) {
   case CMARK_NODE_BLOCK_QUOTE:
   case CMARK_NODE_FOOTNOTE_DEFINITION:
   case CMARK_NODE_ITEM:
+  case CMARK_NODE_DEFINITION_DESCRIPTION:
     return CMARK_NODE_TYPE_BLOCK_P(child_type) && child_type != CMARK_NODE_ITEM;
+
+  case CMARK_NODE_DEFINITION_LIST:
+    return child_type == CMARK_NODE_DEFINITION_TERM || child_type == CMARK_NODE_DEFINITION_DESCRIPTION;
 
   case CMARK_NODE_LIST:
     return child_type == CMARK_NODE_ITEM;
@@ -85,6 +89,7 @@ bool cmark_node_can_contain_type(cmark_node *node, cmark_node_type child_type) {
   case CMARK_NODE_CUSTOM_BLOCK:
     return true;
 
+  case CMARK_NODE_DEFINITION_TERM:
   case CMARK_NODE_PARAGRAPH:
   case CMARK_NODE_HEADING:
   case CMARK_NODE_EMPH:
@@ -288,6 +293,9 @@ const char *cmark_node_get_type_string(cmark_node *node) {
     return "html_block";
   case CMARK_NODE_CUSTOM_BLOCK:
     return "custom_block";
+  case CMARK_NODE_DEFINITION_LIST: return "definition_list";
+  case CMARK_NODE_DEFINITION_TERM: return "definition_term";
+  case CMARK_NODE_DEFINITION_DESCRIPTION: return "definition_description";
   case CMARK_NODE_PARAGRAPH:
     return "paragraph";
   case CMARK_NODE_HEADING:
@@ -1155,4 +1163,8 @@ int cmark_node_check(cmark_node *node, FILE *out) {
   }
 
   return errors;
+}
+
+int cmark_node_get_definition_spread(cmark_node *node) {
+  return node && node->type == CMARK_NODE_DEFINITION_DESCRIPTION && node->definition.spread;
 }

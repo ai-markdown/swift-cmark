@@ -54,6 +54,10 @@ typedef enum {
   CMARK_NODE_THEMATIC_BREAK = CMARK_NODE_TYPE_BLOCK | 0x000a,
   CMARK_NODE_FOOTNOTE_DEFINITION = CMARK_NODE_TYPE_BLOCK | 0x000b,
 
+  CMARK_NODE_DEFINITION_LIST = CMARK_NODE_TYPE_BLOCK | 0x000c,
+  CMARK_NODE_DEFINITION_TERM = CMARK_NODE_TYPE_BLOCK | 0x000d,
+  CMARK_NODE_DEFINITION_DESCRIPTION = CMARK_NODE_TYPE_BLOCK | 0x000e,
+
   /* Inline */
   CMARK_NODE_TEXT          = CMARK_NODE_TYPE_INLINE | 0x0001,
   CMARK_NODE_SOFTBREAK     = CMARK_NODE_TYPE_INLINE | 0x0002,
@@ -73,6 +77,8 @@ extern cmark_node_type CMARK_NODE_LAST_BLOCK;
 extern cmark_node_type CMARK_NODE_LAST_INLINE;
 
 /* For backwards compatibility: */
+#define CMARK_OPT_DEFINITION_LISTS (1 << 24)
+
 #define CMARK_NODE_HEADER CMARK_NODE_HEADING
 #define CMARK_NODE_HRULE CMARK_NODE_THEMATIC_BREAK
 #define CMARK_NODE_HTML CMARK_NODE_HTML_BLOCK
@@ -98,6 +104,7 @@ typedef enum {
 } cmark_list_marker_type;
 
 typedef struct cmark_node cmark_node;
+CMARK_GFM_EXPORT int cmark_node_get_definition_spread(cmark_node *node);
 typedef struct cmark_parser cmark_parser;
 typedef struct cmark_iter cmark_iter;
 typedef struct cmark_syntax_extension cmark_syntax_extension;

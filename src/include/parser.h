@@ -42,6 +42,9 @@ struct cmark_parser {
   bool blank;
   /* See the documentation for cmark_parser_has_partially_consumed_tab() in cmark.h */
   bool partially_consumed_tab;
+  bool definition_lazy_code;
+  bool definition_synthetic_ending;
+  int definition_line_offset;
   /* Contains the currently processed line */
   cmark_strbuf curline;
   /* See the documentation for cmark_parser_get_last_line_length() in cmark.h */
