@@ -801,6 +801,9 @@ char *cmark_render_latex_with_mem(cmark_node *root, int options, int width, cmar
  */
 #define CMARK_OPT_FOOTNOTES_LOSSLESS (1 << 22)
 
+/** Observe raw adjacent characters for Web-compatible asterisk/underscore emphasis. */
+#define CMARK_OPT_WEB_EMPHASIS (1 << 23)
+
 /** Only parse strikethroughs if surrounded by exactly 2 tildes.
  * Gives some compatibility with redcarpet.
  */

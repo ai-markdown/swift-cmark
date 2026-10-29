@@ -435,6 +435,10 @@ static int scan_delims(cmark_parser *parser, subject *subj, unsigned char c,
   int32_t before_char = 0;
   int len;
   bool left_flanking, right_flanking;
+  // Web attention observes adjacent source characters, including extension delimiters.
+  // Preserve cmark extension transparency unless the caller explicitly opts in.
+  bool skip_extension_delimiters = !(parser->options & CMARK_OPT_WEB_EMPHASIS) ||
+                                   (c != '*' && c != '_');
 
   if (subj->pos == 0) {
     before_char = 10;
@@ -442,12 +446,12 @@ static int scan_delims(cmark_parser *parser, subject *subj, unsigned char c,
     before_char_pos = subj->pos - 1;
 
     // walk back to the beginning of the UTF_8 sequence:
-    while ((peek_at(subj, before_char_pos) >> 6 == 2 || parser->skip_chars[peek_at(subj, before_char_pos)]) && before_char_pos > 0) {
+    while ((peek_at(subj, before_char_pos) >> 6 == 2 || (skip_extension_delimiters && parser->skip_chars[peek_at(subj, before_char_pos)])) && before_char_pos > 0) {
       before_char_pos -= 1;
     }
     len = cmark_utf8proc_iterate(subj->input.data + before_char_pos,
                                  subj->pos - before_char_pos, &before_char);
-    if (len == -1 || (before_char < 256 && parser->skip_chars[(unsigned char) before_char])) {
+    if (len == -1 || (skip_extension_delimiters && before_char < 256 && parser->skip_chars[(unsigned char) before_char])) {
       before_char = 10;
     }
   }
@@ -467,12 +471,12 @@ static int scan_delims(cmark_parser *parser, subject *subj, unsigned char c,
   } else {
     after_char_pos = subj->pos;
 
-    while (parser->skip_chars[peek_at(subj, after_char_pos)] && after_char_pos < subj->input.len) {
+    while ((skip_extension_delimiters && parser->skip_chars[peek_at(subj, after_char_pos)]) && after_char_pos < subj->input.len) {
       after_char_pos += 1;
     }
     len = cmark_utf8proc_iterate(subj->input.data + after_char_pos,
                                  subj->input.len - after_char_pos, &after_char);
-    if (len == -1 || (after_char < 256 && parser->skip_chars[(unsigned char) after_char])) {
+    if (len == -1 || (skip_extension_delimiters && after_char < 256 && parser->skip_chars[(unsigned char) after_char])) {
       after_char = 10;
     }
   }
@@ -485,6 +489,13 @@ static int scan_delims(cmark_parser *parser, subject *subj, unsigned char c,
                    (!cmark_utf8proc_is_punctuation(before_char) ||
                     cmark_utf8proc_is_space(after_char) ||
                     cmark_utf8proc_is_punctuation(after_char));
+  if (!skip_extension_delimiters) {
+    // micromark attentionMarkers allow registered tilde/equal delimiters to flank.
+    if ((after_char == '~' || after_char == '=') && parser->skip_chars[after_char])
+      left_flanking = true;
+    if ((before_char == '~' || before_char == '=') && parser->skip_chars[before_char])
+      right_flanking = true;
+  }
   if (c == '_') {
     *can_open = left_flanking &&
                 (!right_flanking || cmark_utf8proc_is_punctuation(before_char));
