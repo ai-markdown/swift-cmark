@@ -113,6 +113,22 @@ static int S_render_node(cmark_renderer *renderer, cmark_node *node,
     }
     break;
 
+  case CMARK_NODE_DEFINITION_LIST:
+    CR(); LIT(entering ? ".RS" : ".RE"); CR();
+    break;
+
+  case CMARK_NODE_DEFINITION_TERM:
+    if (entering) { CR(); LIT(".TP"); CR(); LIT("\\f[B]"); }
+    else { LIT("\\f[]"); CR(); }
+    break;
+
+  case CMARK_NODE_DEFINITION_DESCRIPTION:
+    if (entering && node->prev && node->prev->type == CMARK_NODE_DEFINITION_DESCRIPTION) {
+      CR(); LIT(".sp"); CR();
+    }
+    if (!entering) CR();
+    break;
+
   case CMARK_NODE_LIST:
     break;
 
@@ -172,7 +188,7 @@ static int S_render_node(cmark_renderer *renderer, cmark_node *node,
   case CMARK_NODE_PARAGRAPH:
     if (entering) {
       // no blank line if first paragraph in list:
-      if (node->parent && node->parent->type == CMARK_NODE_ITEM &&
+      if (node->parent && (node->parent->type == CMARK_NODE_ITEM || node->parent->type == CMARK_NODE_DEFINITION_DESCRIPTION) &&
           node->prev == NULL) {
         // no blank line or .PP
       } else {

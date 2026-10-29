@@ -157,6 +157,9 @@ cmark_syntax_extension *create_highlight_extension(void) {
   cmark_syntax_extension_set_commonmark_render_func(ext, commonmark_render);
   cmark_syntax_extension_set_html_render_func(ext, html_render);
   cmark_syntax_extension_set_plaintext_render_func(ext, plaintext_render);
+  // These text formatters retain children without claiming native mark styling.
+  cmark_syntax_extension_set_latex_render_func(ext, plaintext_render);
+  cmark_syntax_extension_set_man_render_func(ext, plaintext_render);
   CMARK_NODE_HIGHLIGHT = cmark_syntax_extension_add_node(1);
 
   cmark_syntax_extension_set_match_inline_func(ext, match);

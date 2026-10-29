@@ -247,6 +247,26 @@ static int S_render_node(cmark_renderer *renderer, cmark_node *node,
     }
     break;
 
+  case CMARK_NODE_DEFINITION_LIST:
+    if (entering) {
+      CR(); LIT("\\begin{description}"); CR();
+    } else {
+      CR(); LIT("\\end{description}"); BLANKLINE();
+    }
+    break;
+
+  case CMARK_NODE_DEFINITION_TERM:
+    if (entering) { CR(); LIT("\\item[{"); }
+    else { LIT("}] "); }
+    break;
+
+  case CMARK_NODE_DEFINITION_DESCRIPTION:
+    if (entering && node->prev && node->prev->type == CMARK_NODE_DEFINITION_DESCRIPTION) {
+      CR(); LIT("\\par ");
+    }
+    if (!entering) CR();
+    break;
+
   case CMARK_NODE_LIST:
     list_type = cmark_node_get_list_type(node);
     if (entering) {

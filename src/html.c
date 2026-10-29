@@ -141,6 +141,13 @@ static int S_render_node(cmark_html_renderer *renderer, cmark_node *node,
     return 1;
   }
 
+  // A tight paragraph ends in semantic text (possibly already LF), while
+  // block renderers end in structural LF. The dd separator must not collapse
+  // a paragraph hardbreak into the surrounding block separator.
+  if (entering && node->parent && node->parent->type == CMARK_NODE_DEFINITION_DESCRIPTION &&
+      !node->parent->definition.spread && node->prev && node->prev->type == CMARK_NODE_PARAGRAPH)
+    cmark_strbuf_putc(html, '\n');
+
   if (node->extension && node->extension->html_render_func) {
     node->extension->html_render_func(node->extension, renderer, node, ev_type, options);
     return 1;
@@ -159,6 +166,42 @@ static int S_render_node(cmark_html_renderer *renderer, cmark_node *node,
     } else {
       cmark_html_render_cr(html);
       cmark_strbuf_puts(html, "</blockquote>\n");
+    }
+    break;
+
+  case CMARK_NODE_DEFINITION_LIST:
+    if (entering) {
+      cmark_html_render_cr(html);
+      cmark_strbuf_puts(html, "<dl");
+      cmark_html_render_sourcepos(node, html, options);
+      cmark_strbuf_putc(html, '>');
+      if (node->first_child) cmark_strbuf_putc(html, '\n');
+    } else {
+      cmark_strbuf_puts(html, "</dl>\n");
+    }
+    break;
+
+  case CMARK_NODE_DEFINITION_TERM:
+    if (entering) {
+      cmark_html_render_cr(html);
+      cmark_strbuf_puts(html, "<dt");
+      cmark_html_render_sourcepos(node, html, options);
+      cmark_strbuf_putc(html, '>');
+    } else {
+      cmark_strbuf_puts(html, "</dt>\n");
+    }
+    break;
+
+  case CMARK_NODE_DEFINITION_DESCRIPTION:
+    if (entering) {
+      cmark_html_render_cr(html);
+      cmark_strbuf_puts(html, "<dd");
+      cmark_html_render_sourcepos(node, html, options);
+      cmark_strbuf_putc(html, '>');
+    } else {
+      if (node->last_child && !node->definition.spread && node->last_child->type == CMARK_NODE_PARAGRAPH) cmark_strbuf_putc(html, '\n');
+      else if (node->first_child) cmark_html_render_cr(html);
+      cmark_strbuf_puts(html, "</dd>\n");
     }
     break;
 
@@ -289,7 +332,10 @@ static int S_render_node(cmark_html_renderer *renderer, cmark_node *node,
   case CMARK_NODE_PARAGRAPH:
     parent = cmark_node_parent(node);
     grandparent = cmark_node_parent(parent);
-    if (grandparent != NULL && grandparent->type == CMARK_NODE_LIST) {
+    if (parent && parent->type == CMARK_NODE_DEFINITION_DESCRIPTION) {
+      tight = !parent->definition.spread;
+      if (tight && entering && node->prev) cmark_html_render_cr(html);
+    } else if (grandparent != NULL && grandparent->type == CMARK_NODE_LIST) {
       tight = grandparent->as.list.tight;
     } else {
       tight = false;

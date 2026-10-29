@@ -57,6 +57,24 @@ static int S_render_node(cmark_renderer *renderer, cmark_node *node,
   case CMARK_NODE_BLOCK_QUOTE:
     break;
 
+  case CMARK_NODE_DEFINITION_LIST:
+    if (entering) { CR(); } else { BLANKLINE(); }
+    break;
+
+  case CMARK_NODE_DEFINITION_TERM:
+    CR();
+    break;
+
+  case CMARK_NODE_DEFINITION_DESCRIPTION:
+    if (entering) {
+      CR();
+      cmark_strbuf_puts(renderer->prefix, "    ");
+    } else {
+      cmark_strbuf_truncate(renderer->prefix, renderer->prefix->size - 4);
+      CR();
+    }
+    break;
+
   case CMARK_NODE_LIST:
     if (!entering && node->next && (node->next->type == CMARK_NODE_CODE_BLOCK ||
                                     node->next->type == CMARK_NODE_LIST)) {
@@ -129,7 +147,8 @@ static int S_render_node(cmark_renderer *renderer, cmark_node *node,
 
   case CMARK_NODE_PARAGRAPH:
     if (!entering) {
-      BLANKLINE();
+      if (node->parent && node->parent->type == CMARK_NODE_DEFINITION_DESCRIPTION && !node->parent->definition.spread) { CR(); }
+      else { BLANKLINE(); }
     }
     break;
 
