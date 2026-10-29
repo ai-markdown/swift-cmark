@@ -226,6 +226,7 @@ void cmark_code_metadata_start(cmark_node *node, int kind);
 void cmark_code_metadata_finish(cmark_node *node);
 void cmark_code_metadata_clear(cmark_node *node);
 void cmark_code_metadata_inline(cmark_node *node, cmark_chunk source);
+void cmark_code_metadata_table(cmark_node *node);
 
 #ifdef __cplusplus
 }

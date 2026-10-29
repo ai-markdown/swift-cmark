@@ -89,6 +89,25 @@ void cmark_code_metadata_inline(cmark_node *node, cmark_chunk source) {
   data->finished = true;
 }
 
+/* Fixed mdast-util-gfm-table exitCodeText: consume backslash pairs once. */
+void cmark_code_metadata_table(cmark_node *node) {
+  cmark_code_metadata *data = node ? node->code_metadata : NULL;
+  if (!data || data->kind != 3 || !data->finished || !data->value.len) return;
+  cmark_chunk *value = &data->value;
+  bufsize_t read = 0, write = 0;
+  while (read < value->len) {
+    unsigned char byte = value->data[read++];
+    if (byte == '\\' && read < value->len &&
+        (value->data[read] == '\\' || value->data[read] == '|')) {
+      unsigned char next = value->data[read++];
+      if (next == '\\') value->data[write++] = byte;
+      value->data[write++] = next;
+    } else value->data[write++] = byte;
+  }
+  value->len = write;
+  value->data[write] = 0;
+}
+
 static cmark_code_metadata *metadata(cmark_node *node) {
   if (!node || (node->type != CMARK_NODE_CODE_BLOCK && node->type != CMARK_NODE_CODE)) return NULL;
   return node->code_metadata && node->code_metadata->finished ? node->code_metadata : NULL;
