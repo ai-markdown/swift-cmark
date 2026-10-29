@@ -234,9 +234,12 @@ static inline bool contains_inlines(cmark_node *node) {
           node->type == CMARK_NODE_HEADING);
 }
 
+static void S_advance_offset(cmark_parser *parser, cmark_chunk *input, bufsize_t count, bool columns);
+
 static void add_line(cmark_node *node, cmark_chunk *ch, cmark_parser *parser) {
   int chars_to_tab;
   int i;
+  bufsize_t code_source_start = node->content.size;
   assert(node->flags & CMARK_NODE__OPEN);
   if ((parser->options & CMARK_OPT_DEFINITION_LISTS) && node->type == CMARK_NODE_PARAGRAPH &&
       node->content.size > 0 && parser->column > 0 && node->parent &&
@@ -253,7 +256,7 @@ static void add_line(cmark_node *node, cmark_chunk *ch, cmark_parser *parser) {
       cmark_strbuf_putc(&node->content, ' ');
     }
   }
-  if ((parser->options & (CMARK_OPT_MATH | CMARK_OPT_REFERENCE_DEFINITIONS | CMARK_OPT_WEB_CHARACTER_REFERENCES)) &&
+  if ((parser->options & (CMARK_OPT_MATH | CMARK_OPT_REFERENCE_DEFINITIONS | CMARK_OPT_WEB_CHARACTER_REFERENCES | CMARK_OPT_CODE_METADATA)) &&
       (node->type == CMARK_NODE_PARAGRAPH || node->type == CMARK_NODE_HEADING)) {
     if (node->math_line_count == node->math_line_capacity) {
       node->math_line_capacity = node->math_line_capacity ? node->math_line_capacity * 2 : 8;
@@ -281,6 +284,61 @@ static void add_line(cmark_node *node, cmark_chunk *ch, cmark_parser *parser) {
     parser->math_eol_target = node;
   }
 
+  if (node->type == CMARK_NODE_CODE_BLOCK && node->code_metadata) {
+    cmark_code_metadata *data = node->code_metadata;
+    cmark_strbuf line = CMARK_BUF_INIT(parser->mem);
+    if (parser->blank && parser->code_footnote_blank_offset >= 0) {
+      /* GFM footnote blankLine is a check, not an indent token. Use the real
+       * blank-line bytes before the legacy footnote prefix consumed them. */
+      cmark_parser cursor = *parser;
+      cursor.offset = parser->code_footnote_blank_offset;
+      cursor.column = parser->code_footnote_blank_column;
+      cursor.partially_consumed_tab = parser->code_footnote_blank_partial;
+      /* Replay only the real open-container whitespace prefixes. GFM
+       * footnote blankLine is non-consuming; list/definition/code prefixes
+       * still consume their token widths, including virtual tab spaces. */
+      size_t count = 0;
+      cmark_node *owner = node;
+      while (owner && owner != parser->code_footnote_blank_container) { count++; owner = owner->parent; }
+      if (owner) {
+        cmark_node **path = parser->mem->calloc(count, sizeof(cmark_node *));
+        owner = node;
+        for (size_t j = count; j > 0; j--) { path[j - 1] = owner; owner = owner->parent; }
+        for (size_t j = 0; j < count; j++) {
+          int width = 0;
+          if (path[j]->type == CMARK_NODE_ITEM) width = path[j]->as.list.marker_offset + path[j]->as.list.padding;
+          else if (path[j]->type == CMARK_NODE_DEFINITION_DESCRIPTION) width = path[j]->definition.padding;
+          else if (path[j] == node) width = data->kind == 2 ? CODE_INDENT : node->as.code.fence_offset;
+          int consumed = 0;
+          while (consumed < width && S_is_space_or_tab(peek_at(ch, cursor.offset))) { S_advance_offset(&cursor, ch, 1, true); consumed++; }
+          if (path[j] == node && data->kind == 2) data->indented_qualified = consumed == CODE_INDENT;
+        }
+        parser->mem->free(path);
+      }
+      if (cursor.partially_consumed_tab) {
+        cursor.offset++;
+        for (int j = TAB_STOP - (cursor.column % TAB_STOP); j > 0; j--) cmark_strbuf_putc(&line, ' ');
+      }
+      cmark_strbuf_put(&line, ch->data + cursor.offset, ch->len - cursor.offset);
+    } else cmark_strbuf_put(&line, node->content.ptr + code_source_start, node->content.size - code_source_start);
+    if (line.size && line.ptr[line.size - 1] == '\n') cmark_strbuf_truncate(&line, line.size - 1);
+    cmark_strbuf_put(&data->source, line.ptr, line.size);
+    if (data->kind == 2 && data->indented_qualified) {
+      cmark_strbuf_put(&data->compiled, data->pending.ptr, data->pending.size);
+      cmark_strbuf_clear(&data->pending);
+      cmark_strbuf_put(&data->compiled, line.ptr, line.size);
+    }
+    if (parser->math_current_ending == 13 || parser->math_current_ending == 0x0d0a) {
+      cmark_strbuf_putc(&data->source, '\r');
+      if (data->kind == 2) cmark_strbuf_putc(&data->pending, '\r');
+    }
+    if (parser->math_current_ending == 10 || parser->math_current_ending == 0x0d0a) {
+      cmark_strbuf_putc(&data->source, '\n');
+      if (data->kind == 2) cmark_strbuf_putc(&data->pending, '\n');
+    }
+    cmark_strbuf_free(&line);
+    parser->math_eol_target = node;
+  }
 }
 
 static void remove_trailing_blank_lines(cmark_strbuf *ln) {
@@ -489,6 +547,7 @@ static cmark_node *finalize(cmark_parser *parser, cmark_node *b) {
   }
 
   case CMARK_NODE_CODE_BLOCK:
+    cmark_code_metadata_finish(b);
     if (!b->as.code.fenced) { // indented code
       remove_trailing_blank_lines(node_content);
       cmark_strbuf_putc(node_content, '\n');
@@ -924,6 +983,10 @@ static void S_parser_feed(cmark_parser *parser, const unsigned char *buffer,
   if (parser->last_buffer_ended_with_cr && *buffer == '\n') {
     // skip NL if last buffer ended with CR ; see #117
     cmark_node *target = parser->math_eol_target;
+    if (target && target->code_metadata && target->code_metadata->source.size &&
+        target->code_metadata->source.ptr[target->code_metadata->source.size - 1] == '\r')
+      { cmark_strbuf_putc(&target->code_metadata->source, '\n');
+        if (target->code_metadata->kind == 2) cmark_strbuf_putc(&target->code_metadata->pending, '\n'); }
     if (target && target->type == CMARK_NODE_MATH_BLOCK) cmark_strbuf_putc(&target->content, '\n');
     else if (target && target->math_line_count) target->math_lines[target->math_line_count - 1].ending = 0x0d0a;
     buffer++;
@@ -1137,6 +1200,12 @@ static bool parse_block_quote_prefix(cmark_parser *parser, cmark_chunk *input) {
 static bool parse_footnote_definition_block_prefix(cmark_parser *parser, cmark_chunk *input,
                                                    cmark_node *container) {
   if (parser->indent >= 4) {
+    if ((parser->options & CMARK_OPT_CODE_METADATA) && parser->blank && parser->code_footnote_blank_offset < 0) {
+      parser->code_footnote_blank_offset = parser->offset;
+      parser->code_footnote_blank_container = container;
+      parser->code_footnote_blank_column = parser->column;
+      parser->code_footnote_blank_partial = parser->partially_consumed_tab;
+    }
     S_advance_offset(parser, input, 4, true);
     return true;
   } else if (input->len > 0 && (input->data[0] == '\n' || (input->data[0] == '\r' && input->data[1] == '\n'))) {
@@ -1174,9 +1243,11 @@ static bool parse_code_block_prefix(cmark_parser *parser, cmark_chunk *input,
 
   if (!container->as.code.fenced) { // indented
     if (parser->indent >= CODE_INDENT) {
+      if (container->code_metadata) container->code_metadata->indented_qualified = true;
       S_advance_offset(parser, input, CODE_INDENT, true);
       res = true;
     } else if (parser->blank) {
+      if (container->code_metadata) container->code_metadata->indented_qualified = false;
       S_advance_offset(parser, input, parser->first_nonspace - parser->offset,
                        false);
       res = true;
@@ -1194,6 +1265,7 @@ static bool parse_code_block_prefix(cmark_parser *parser, cmark_chunk *input,
       // the end of a line, we can stop processing it:
       *should_continue = false;
       S_advance_offset(parser, input, matched, false);
+      if (container->code_metadata) container->code_metadata->closed = true;
       parser->current = finalize(parser, container);
     } else {
       // skip opt. spaces of fence parser->offset
@@ -1362,9 +1434,14 @@ static cmark_node *check_open_blocks(cmark_parser *parser, cmark_chunk *input,
       }
       break;
 		case CMARK_NODE_FOOTNOTE_DEFINITION:
-			if (!parse_footnote_definition_block_prefix(parser, input, container))
-				goto done;
-			break;
+      if (!parse_footnote_definition_block_prefix(parser, input, container)) {
+        if (parser->options & CMARK_OPT_CODE_METADATA) {
+          for (cmark_node *open = parser->current; open && open != container; open = open->parent)
+            if (open->code_metadata && open->code_metadata->kind == 1) open->code_metadata->boundary_trim = true;
+        }
+        goto done;
+      }
+      break;
     default:
       break;
     }
@@ -1458,6 +1535,9 @@ static void open_new_blocks(cmark_parser *parser, cmark_node **container,
       (*container)->as.code.fenced = true;
       (*container)->as.code.fence_char = peek_at(input, parser->first_nonspace);
       (*container)->as.code.fence_length = (matched > 255) ? 255 : (uint8_t)matched;
+      /* The legacy parser caps fence runs at 255: do not claim metadata for
+       * a token whose source closing behavior is outside that grammar. */
+      if ((parser->options & CMARK_OPT_CODE_METADATA) && matched <= 255) cmark_code_metadata_start(*container, 1);
       (*container)->as.code.fence_offset =
           (int8_t)((parser->options & CMARK_OPT_DEFINITION_LISTS) ? parser->indent : parser->first_nonspace - parser->offset);
       (*container)->as.code.info = cmark_chunk_literal("");
@@ -1582,6 +1662,7 @@ static void open_new_blocks(cmark_parser *parser, cmark_node **container,
                              parser->offset + 1);
       (*container)->definition.single_line = parser->definition_lazy_code;
       (*container)->as.code.fenced = false;
+      if (parser->options & CMARK_OPT_CODE_METADATA) { cmark_code_metadata_start(*container, 2); (*container)->code_metadata->indented_qualified = true; }
       (*container)->as.code.fence_char = 0;
       (*container)->as.code.fence_length = 0;
       (*container)->as.code.fence_offset = 0;
@@ -1936,6 +2017,8 @@ static void S_process_line(cmark_parser *parser, const unsigned char *buffer,
   cmark_strbuf_clear(&parser->curline);
   parser->math_inline_prefix = 0;
   parser->math_eol_target = NULL;
+  parser->code_footnote_blank_offset = -1;
+  parser->code_footnote_blank_container = NULL;
 
   if (parser->options & CMARK_OPT_VALIDATE_UTF8)
     cmark_utf8proc_check(&parser->curline, buffer, bytes);

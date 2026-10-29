@@ -23,6 +23,8 @@ add_library(libcmark-gfm
   man.c
   map.c
   node.c
+  code_metadata.c
+  string_token.c
   plaintext.c
   plugin.c
   references.c

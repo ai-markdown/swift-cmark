@@ -824,6 +824,15 @@ char *cmark_render_latex_with_mem(cmark_node *root, int options, int width, cmar
 #define CMARK_OPT_REFERENCE_USAGES (1 << 27)
 /** Match Web inline character references without changing code or TeX bodies. */
 #define CMARK_OPT_WEB_CHARACTER_REFERENCES (1 << 28)
+/** Capture source-based Web code fields; legacy display literals are unchanged. */
+#define CMARK_OPT_CODE_METADATA (1 << 29)
+
+CMARK_GFM_EXPORT int cmark_node_get_code_metadata_kind(cmark_node *node);
+CMARK_GFM_EXPORT const char *cmark_node_get_code_metadata_value(cmark_node *node);
+CMARK_GFM_EXPORT const char *cmark_node_get_code_metadata_info(cmark_node *node);
+CMARK_GFM_EXPORT const char *cmark_node_get_code_metadata_lang(cmark_node *node);
+CMARK_GFM_EXPORT const char *cmark_node_get_code_metadata_meta(cmark_node *node);
+CMARK_GFM_EXPORT const char *cmark_node_get_code_metadata_source(cmark_node *node);
 
 CMARK_GFM_EXPORT const char *cmark_node_get_reference_label(cmark_node *node);
 CMARK_GFM_EXPORT const char *cmark_node_get_reference_identifier_source(cmark_node *node);

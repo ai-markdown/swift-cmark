@@ -18,6 +18,10 @@ extern "C" {
 bool cmark_resolve_reference_definitions(cmark_parser *parser, cmark_node *node);
 
 struct cmark_parser {
+  bufsize_t code_footnote_blank_offset;
+  int code_footnote_blank_column;
+  cmark_node *code_footnote_blank_container;
+  bool code_footnote_blank_partial;
   struct cmark_mem *mem;
   /* A hashtable of urls in the current document for cross-references */
   struct cmark_map *refmap;

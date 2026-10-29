@@ -434,6 +434,12 @@ static cmark_node *handle_backticks(subject *subj, int options) {
     S_normalize_code(&buf);
 
     cmark_node *node = make_code(subj, startpos, endpos - openticks.len - 1, cmark_chunk_buf_detach(&buf));
+    if (options & CMARK_OPT_CODE_METADATA) {
+      cmark_chunk source = reference_string(subj->mem, subj->math_parent, startpos,
+          subj->input.data + startpos, endpos - startpos - openticks.len, false, false);
+      cmark_code_metadata_inline(node, source);
+      cmark_chunk_free(subj->mem, &source);
+    }
     node->backtick_count = openticks.len;
     adjust_subj_node_newlines(subj, node, endpos - startpos, openticks.len, options);
     return node;

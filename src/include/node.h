@@ -83,7 +83,15 @@ typedef struct {
   int type; /* 1 shortcut, 2 collapsed, 3 full */
 } cmark_reference_usage;
 
+typedef struct {
+  cmark_strbuf source, compiled, pending;
+  cmark_chunk info, value, lang, meta;
+  int kind;
+  bool finished, indented_qualified, closed, boundary_trim;
+} cmark_code_metadata;
+
 struct cmark_node {
+  cmark_code_metadata *code_metadata;
   struct cmark_syntax_extension *task_extension;
   int task_content_line;
   int reference_visual_column;
@@ -212,6 +220,11 @@ CMARK_GFM_EXPORT bool cmark_node_can_contain_type(cmark_node *node, cmark_node_t
  * intended to be used during testing.
  */
 CMARK_GFM_EXPORT void cmark_enable_safety_checks(bool enable);
+
+void cmark_code_metadata_start(cmark_node *node, int kind);
+void cmark_code_metadata_finish(cmark_node *node);
+void cmark_code_metadata_clear(cmark_node *node);
+void cmark_code_metadata_inline(cmark_node *node, cmark_chunk source);
 
 #ifdef __cplusplus
 }

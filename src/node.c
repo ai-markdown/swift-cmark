@@ -196,6 +196,7 @@ static void free_node_as(cmark_node *node) {
   NODE_MEM(node)->free(node->math_lines);
   node->math_lines = NULL; node->math_line_count = node->math_line_capacity = 0;
 
+  cmark_code_metadata_clear(node);
   switch (node->type) {
     case CMARK_NODE_MATH_BLOCK:
   case CMARK_NODE_CODE_BLOCK:
@@ -487,11 +488,13 @@ int cmark_node_set_literal(cmark_node *node, const char *content) {
   case CMARK_NODE_MATH_INLINE:
   case CMARK_NODE_CODE:
   case CMARK_NODE_FOOTNOTE_REFERENCE:
+    cmark_code_metadata_clear(node);
     cmark_chunk_set_cstr(NODE_MEM(node), &node->as.literal, content);
     return 1;
 
   case CMARK_NODE_MATH_BLOCK:
   case CMARK_NODE_CODE_BLOCK:
+    cmark_code_metadata_clear(node);
     cmark_chunk_set_cstr(NODE_MEM(node), &node->as.code.literal, content);
     return 1;
 
@@ -732,6 +735,7 @@ int cmark_node_set_fence_info(cmark_node *node, const char *info) {
   }
 
   if ((node->type == CMARK_NODE_CODE_BLOCK || node->type == CMARK_NODE_MATH_BLOCK)) {
+    cmark_code_metadata_clear(node);
     cmark_chunk_set_cstr(NODE_MEM(node), &node->as.code.info, info);
     return 1;
   } else {
@@ -761,6 +765,7 @@ int cmark_node_set_fenced(cmark_node * node, int fenced,
   }
 
   if ((node->type == CMARK_NODE_CODE_BLOCK || node->type == CMARK_NODE_MATH_BLOCK)) {
+    cmark_code_metadata_clear(node);
     node->as.code.fenced = (int8_t)fenced;
     node->as.code.fence_length = (uint8_t)length;
     node->as.code.fence_offset = (uint8_t)offset;
