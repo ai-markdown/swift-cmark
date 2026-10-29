@@ -8,6 +8,7 @@
 #include "node.h"
 #include "parser.h"
 #include "references.h"
+#include "footnotes.h"
 #include "cmark-gfm.h"
 #include "houdini.h"
 #include "utf8.h"
@@ -1388,6 +1389,18 @@ noMatch:
     // after the ^, let's call it a footnote reference.
     if ((literal->len > 0 && literal->data[0] == '^') && (literal->len > 1 || opener->inl_text->next->next)) {
 
+      cmark_footnote *definition = NULL;
+      if (parser->options & CMARK_OPT_FOOTNOTES_LOSSLESS) {
+        // Slice the label from the original subject, not from text nodes that may have been escaped or split.
+        cmark_chunk label = cmark_chunk_dup(&subj->input, opener->position + 1,
+                                            initial_pos - opener->position - 2);
+        definition = (cmark_footnote *)cmark_map_lookup(parser->footnote_map, &label);
+        cmark_chunk_free(subj->mem, &label);
+        // Preserve preceding delimiter/text nodes for normal emphasis, escape, and other inline processing.
+        if (!definition)
+          goto noFootnoteMatch;
+      }
+
       // Before we got this far, the `handle_close_bracket` function may have
       // advanced the current state beyond our footnote's actual closing
       // bracket, ie if it went looking for a `link_label`.
@@ -1412,7 +1425,11 @@ noMatch:
       // `opener` and the subject's current position there are other nodes
       //
       // (first, check for underflows)
-      if ((fnref_start_column + 2) <= fnref_end_column) {
+      if (parser->options & CMARK_OPT_FOOTNOTES_LOSSLESS) {
+        fnref->as.literal = cmark_chunk_dup(&subj->input, opener->position + 1,
+                                           initial_pos - opener->position - 2);
+        fnref->parent_footnote_def = definition->node;
+      } else if ((fnref_start_column + 2) <= fnref_end_column) {
         fnref->as.literal = cmark_chunk_dup(literal, 1, (fnref_end_column - fnref_start_column) - 2);
       } else {
         fnref->as.literal = cmark_chunk_dup(literal, 1, 0);
@@ -1455,6 +1472,7 @@ noMatch:
     }
   }
 
+noFootnoteMatch:
   pop_bracket(subj); // remove this opener from delimiter list
   subj->pos = initial_pos;
   return make_str(subj, subj->pos - 1, subj->pos - 1, cmark_chunk_literal("]"));

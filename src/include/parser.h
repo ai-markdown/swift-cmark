@@ -19,6 +19,8 @@ struct cmark_parser {
   struct cmark_mem *mem;
   /* A hashtable of urls in the current document for cross-references */
   struct cmark_map *refmap;
+  /* Lossless mode: a temporary map borrowing definition nodes only during inline parsing. */
+  struct cmark_map *footnote_map;
   /* The root node of the parser, always a CMARK_NODE_DOCUMENT */
   struct cmark_node *root;
   /* The last open block after a line is fully processed */

@@ -318,7 +318,10 @@ static cmark_node *finalize(cmark_parser *parser, cmark_node *b) {
          CMARK_NODE__OPEN); // shouldn't call finalize on closed blocks
   b->flags &= ~CMARK_NODE__OPEN;
 
-  if (parser->curline.size == 0) {
+  if (S_type(b) == CMARK_NODE_FOOTNOTE_DEFINITION &&
+      (parser->options & CMARK_OPT_FOOTNOTES_LOSSLESS)) {
+    // S_process_line has recorded the actual boundary of this definition's last nonblank content line.
+  } else if (parser->curline.size == 0) {
     // end of input - line number has not been incremented
     b->end_line = parser->line_number;
     b->end_column = parser->last_line_length;
@@ -683,9 +686,31 @@ static cmark_node *finalize_document(cmark_parser *parser) {
   else
     parser->refmap->max_ref_size = 100000;
 
-  process_inlines(parser, parser->refmap, parser->options);
-  if (parser->options & CMARK_OPT_FOOTNOTES)
-    process_footnotes(parser);
+  if ((parser->options & CMARK_OPT_FOOTNOTES) &&
+      (parser->options & CMARK_OPT_FOOTNOTES_LOSSLESS)) {
+    // Collect all definitions after block parsing so references can precede definitions.
+    cmark_map *map = cmark_footnote_map_new(parser->mem);
+    cmark_iter *iter = cmark_iter_new(parser->root);
+    cmark_event_type event;
+    while ((event = cmark_iter_next(iter)) != CMARK_EVENT_DONE) {
+      cmark_node *node = cmark_iter_get_node(iter);
+      if (event == CMARK_EVENT_ENTER &&
+          node->type == CMARK_NODE_FOOTNOTE_DEFINITION)
+        cmark_footnote_create(map, node);
+    }
+    cmark_iter_free(iter);
+    parser->footnote_map = map;
+    process_inlines(parser, parser->refmap, parser->options);
+    parser->footnote_map = NULL;
+    // sorted is deduplicated; every entry in the full refs chain only borrows tree nodes.
+    for (cmark_map_entry *entry = map->refs; entry; entry = entry->next)
+      ((cmark_footnote *)entry)->node = NULL;
+    cmark_map_free(map);
+  } else {
+    process_inlines(parser, parser->refmap, parser->options);
+    if (parser->options & CMARK_OPT_FOOTNOTES)
+      process_footnotes(parser);
+  }
 
   return parser->root;
 }
@@ -1260,6 +1285,8 @@ static void open_new_blocks(cmark_parser *parser, cmark_node **container,
 
       S_advance_offset(parser, input, parser->first_nonspace + matched - parser->offset, false);
       *container = add_child(parser, *container, CMARK_NODE_FOOTNOTE_DEFINITION, parser->first_nonspace + matched + 1);
+      if (parser->options & CMARK_OPT_FOOTNOTES_LOSSLESS)
+        (*container)->start_column -= matched;
       (*container)->as.literal = c;
 
       (*container)->internal_offset = matched;
@@ -1552,6 +1579,16 @@ finished:
       input.data[parser->last_line_length - 1] == '\r')
     parser->last_line_length -= 1;
 
+  if ((parser->options & CMARK_OPT_FOOTNOTES) &&
+      (parser->options & CMARK_OPT_FOOTNOTES_LOSSLESS)) {
+    for (cmark_node *node = parser->current; node; node = node->parent) {
+      if (node->type == CMARK_NODE_FOOTNOTE_DEFINITION &&
+          (!parser->blank || node->start_line == parser->line_number)) {
+        node->end_line = parser->line_number;
+        node->end_column = parser->last_line_length;
+      }
+    }
+  }
   cmark_strbuf_clear(&parser->curline);
 }
 

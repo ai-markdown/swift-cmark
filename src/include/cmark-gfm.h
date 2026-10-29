@@ -792,6 +792,15 @@ char *cmark_render_latex_with_mem(cmark_node *root, int options, int width, cmar
  */
 #define CMARK_OPT_FOOTNOTES (1 << 13)
 
+/** Experimental lossless footnote AST; CMARK_OPT_FOOTNOTES must also be enabled.
+ * Definitions retain their source positions, including unused and duplicate definitions; reference literals retain parser labels.
+ * Undefined references follow normal inline parsing; definition ranges exclude trailing blank lines.
+ * Read labels with cmark_node_get_literal; their lifetime matches the node.
+ * No numbering or backlinks are generated; existing footnote renderers cannot consume this tree directly.
+ * Only existing cmark footnote recognition results are preserved; GFM syntax equivalence is not guaranteed.
+ */
+#define CMARK_OPT_FOOTNOTES_LOSSLESS (1 << 22)
+
 /** Only parse strikethroughs if surrounded by exactly 2 tildes.
  * Gives some compatibility with redcarpet.
  */
