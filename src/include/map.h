@@ -2,10 +2,14 @@
 #define CMARK_MAP_H
 
 #include "chunk.h"
+#include <stdbool.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+unsigned char *cmark_reference_key(cmark_mem *mem, cmark_chunk *label);
+
 
 struct cmark_map_entry {
   struct cmark_map_entry *next;
@@ -22,6 +26,7 @@ typedef void (*cmark_map_free_f)(struct cmark_map *, cmark_map_entry *);
 
 struct cmark_map {
   cmark_mem *mem;
+  bool web_reference_labels;
   cmark_map_entry *refs;
   cmark_map_entry **sorted;
   size_t size;

@@ -76,13 +76,16 @@ cmark_map_entry *cmark_map_lookup(cmark_map *map, cmark_chunk *label) {
   cmark_map_entry *r = NULL;
   unsigned char *norm;
 
-  if (label->len < 1 || label->len > MAX_LINK_LABEL_LENGTH)
+  if (map == NULL || !map->size)
+    return NULL;
+
+  if (label->len < 1 || (!map->web_reference_labels && label->len > MAX_LINK_LABEL_LENGTH))
     return NULL;
 
   if (map == NULL || !map->size)
     return NULL;
 
-  norm = normalize_map_label(map->mem, label);
+  norm = map->web_reference_labels ? cmark_reference_key(map->mem, label) : normalize_map_label(map->mem, label);
   if (norm == NULL)
     return NULL;
 
@@ -95,9 +98,9 @@ cmark_map_entry *cmark_map_lookup(cmark_map *map, cmark_chunk *label) {
   if (ref != NULL) {
     r = ref[0];
     /* Check for expansion limit */
-    if (r->size > map->max_ref_size - map->ref_size)
+    if (!map->web_reference_labels && r->size > map->max_ref_size - map->ref_size)
       return NULL;
-    map->ref_size += r->size;
+    if (!map->web_reference_labels) map->ref_size += r->size;
   }
 
   return r;

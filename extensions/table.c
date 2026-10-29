@@ -298,7 +298,7 @@ static table_row *row_from_string(cmark_syntax_extension *self,
       // content and cell_matched, or (2) we found an empty cell followed by a
       // pipe.
       cmark_strbuf *cell_buf = unescape_pipes(parser->mem, string + offset,
-          cell_matched, (parser->options & CMARK_OPT_MATH) != 0);
+          cell_matched, (parser->options & (CMARK_OPT_MATH | CMARK_OPT_REFERENCE_USAGES)) != 0);
       cmark_strbuf_trim(cell_buf);
 
       node_cell *cell = append_row_cell(parser->mem, row);
@@ -408,7 +408,7 @@ static void try_inserting_table_header_paragraph(cmark_parser *parser,
 
   paragraph = cmark_node_new_with_mem(CMARK_NODE_PARAGRAPH, parser->mem);
 
-  paragraph_content = unescape_pipes(parser->mem, parent_string, paragraph_offset, (parser->options & CMARK_OPT_MATH) != 0);
+  paragraph_content = unescape_pipes(parser->mem, parent_string, paragraph_offset, (parser->options & (CMARK_OPT_MATH | CMARK_OPT_REFERENCE_USAGES)) != 0);
   cmark_strbuf_trim(paragraph_content);
   cmark_node_set_string_content(paragraph, (char *) paragraph_content->ptr);
   cmark_strbuf_free(paragraph_content);
@@ -524,12 +524,20 @@ static cmark_node *try_opening_table_header(cmark_syntax_extension *self,
   table_header->as.opaque = ntr = (node_table_row *)parser->mem->calloc(1, sizeof(node_table_row));
   ntr->is_header = true;
 
+  int reference_header_offset = 0;
+  int reference_header_column = parent_container->math_line_count ? parent_container->math_lines[0].visual_column : parent_container->start_column;
   for (i = 0; i < header_row->n_columns; ++i) {
     node_cell *cell = &header_row->cells[i];
     cmark_node *header_cell = cmark_parser_add_child(parser, table_header,
         CMARK_NODE_TABLE_CELL, parent_container->start_column + cell->start_offset);
     header_cell->start_line = header_cell->end_line = parent_container->start_line;
     header_cell->internal_offset = cell->internal_offset;
+    if (parser->options & CMARK_OPT_REFERENCE_USAGES) {
+      int target = cell->start_offset + cell->internal_offset;
+      reference_header_column = cmark_reference_column(reference_header_column, (const unsigned char *)parent_string + reference_header_offset, target - reference_header_offset);
+      reference_header_offset = target;
+      header_cell->reference_visual_column = reference_header_column;
+    }
     header_cell->end_column = parent_container->start_column + cell->end_offset;
     header_cell->as.opaque = cell->cell_data;
     cell->cell_data = NULL;
@@ -555,6 +563,7 @@ static cmark_node *try_opening_table_row(cmark_syntax_extension *self,
                                          unsigned char *input, int len) {
   cmark_node *table_row_block;
   table_row *row;
+  int reference_row_offset = 0, reference_row_column = 1;
 
   if (cmark_parser_is_blank(parser))
     return NULL;
@@ -617,7 +626,17 @@ static cmark_node *try_opening_table_row(cmark_syntax_extension *self,
       cmark_node *node = cmark_parser_add_child(parser, table_row_block,
           CMARK_NODE_TABLE_CELL, parent_container->start_column + cell->start_offset);
       node->internal_offset = cell->internal_offset;
+      if (parser->options & CMARK_OPT_REFERENCE_USAGES) {
+        int target = cmark_parser_get_first_nonspace(parser) + cell->start_offset + cell->internal_offset;
+        reference_row_column = cmark_reference_column(reference_row_column, input + reference_row_offset, target - reference_row_offset);
+        reference_row_offset = target;
+        node->reference_visual_column = reference_row_column;
+      }
       node->end_column = parent_container->start_column + cell->end_offset;
+      if (parser->options & CMARK_OPT_REFERENCE_USAGES) {
+        node->start_column = cmark_parser_get_first_nonspace(parser) + 1 + cell->start_offset;
+        node->end_column = cmark_parser_get_first_nonspace(parser) + 1 + cell->end_offset;
+      }
       node->as.opaque = cell->cell_data;
       cell->cell_data = NULL;
       cmark_node_set_string_content(node, (char *) cell->buf->ptr);

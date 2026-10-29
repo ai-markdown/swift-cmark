@@ -59,6 +59,15 @@ static int S_render_node(cmark_node *node, cmark_event_type ev_type,
         cmark_strbuf_puts(xml, r);
     }
 
+    if (node->reference_usage && node->reference_usage->type) {
+      cmark_strbuf_puts(xml, " reference_type=\"");
+      cmark_strbuf_puts(xml, node->reference_usage->type == 3 ? "full" : node->reference_usage->type == 2 ? "collapsed" : "shortcut");
+      cmark_strbuf_puts(xml, "\" reference_source=\"");
+      escape_xml(xml, node->reference_usage->source.data, node->reference_usage->source.len);
+      cmark_strbuf_puts(xml, "\" reference_label=\"");
+      escape_xml(xml, node->reference_usage->label.data, node->reference_usage->label.len);
+      cmark_strbuf_putc(xml, '"');
+    }
     literal = false;
 
     switch (node->type) {

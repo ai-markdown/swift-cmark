@@ -148,7 +148,9 @@ static void cmark_parser_reset(cmark_parser *parser) {
 
   cmark_node *document = make_document(parser->mem);
 
+  if (saved_options & CMARK_OPT_REFERENCE_USAGES) saved_options |= CMARK_OPT_REFERENCE_DEFINITIONS;
   parser->refmap = cmark_reference_map_new(parser->mem);
+  parser->refmap->web_reference_labels = (saved_options & CMARK_OPT_REFERENCE_USAGES) != 0;
   parser->root = document;
   parser->current = document;
 
@@ -262,6 +264,8 @@ static void add_line(cmark_node *node, cmark_chunk *ch, cmark_parser *parser) {
     line->column = parser->offset + 1;
     line->ending = parser->math_current_ending;
     int prefix = parser->math_inline_prefix;
+    line->visual_column = cmark_reference_column(1, ch->data, parser->offset);
+    line->prefix_visual_column = cmark_reference_column(1, ch->data, parser->offset - prefix);
     line->prefix = cmark_chunk_dup(ch, parser->offset - prefix, prefix);
     // Own the prefix: the parser's current-line storage is reused next line.
     cmark_chunk_to_cstr(parser->mem, &line->prefix);
@@ -340,7 +344,7 @@ static bool resolve_reference_link_definitions(
                                           node_content->size - chunk.len + indent, &definition) :
           cmark_parse_reference_inline(parser->mem, &chunk, parser->refmap);
       if (pos) pos += indent;
-    } else if (chunk.len > 1 && chunk.data[0] == '^' && chunk.data[1] == '[') {
+    } else if (!(parser->options & CMARK_OPT_REFERENCE_USAGES) && chunk.len > 1 && chunk.data[0] == '^' && chunk.data[1] == '[') {
       pos = cmark_parse_reference_attributes_inline(parser->mem, &chunk, parser->refmap);
     } else pos = 0;
     if (!pos) break;
@@ -366,6 +370,8 @@ static bool resolve_reference_link_definitions(
       bufsize_t next = i + 1 < b->math_line_count ? b->math_lines[i + 1].offset : node_content->size;
       if (next <= dropped) { cmark_chunk_free(parser->mem, &row.prefix); continue; }
       if (row.offset < dropped) {
+        row.visual_column = cmark_reference_column(row.visual_column, node_content->ptr + row.offset, dropped - row.offset);
+        row.prefix_visual_column = row.visual_column;
         row.column += dropped - row.offset;
         row.offset = 0;
         cmark_chunk_free(parser->mem, &row.prefix);
@@ -378,6 +384,7 @@ static bool resolve_reference_link_definitions(
       b->start_line = b->math_lines[0].line; b->start_column = b->math_lines[0].column;
     }
   }
+  if (dropped) b->reference_cached_valid = false;
   cmark_strbuf_drop(node_content, dropped);
   return !is_blank(&b->content, 0);
 }

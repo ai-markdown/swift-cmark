@@ -14,6 +14,8 @@
 extern "C" {
 #endif
 
+int cmark_reference_column(int column, const unsigned char *data, bufsize_t size);
+
 typedef struct {
   cmark_list_type list_type;
   int marker_offset;
@@ -67,7 +69,7 @@ typedef uint16_t cmark_node_internal_flags;
 
 typedef struct {
   bufsize_t offset;
-  int line, column, ending;
+  int line, column, ending, visual_column, prefix_visual_column;
   cmark_chunk prefix;
 } cmark_math_line;
 
@@ -76,7 +78,17 @@ typedef struct {
   bool has_title;
 } cmark_reference_definition;
 
+typedef struct {
+  cmark_chunk label, source;
+  int type; /* 1 shortcut, 2 collapsed, 3 full */
+} cmark_reference_usage;
+
 struct cmark_node {
+  int reference_visual_column;
+  bufsize_t reference_cached_offset;
+  int reference_cached_column, reference_cached_line;
+  bool reference_cached_valid;
+  cmark_reference_usage *reference_usage;
   cmark_reference_definition *reference_definition;
   cmark_strbuf content;
 

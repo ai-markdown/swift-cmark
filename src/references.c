@@ -21,7 +21,7 @@ static void reference_free(cmark_map *map, cmark_map_entry *_ref) {
 void cmark_reference_create(cmark_map *map, cmark_chunk *label,
                             cmark_chunk *url, cmark_chunk *title) {
   cmark_reference *ref;
-  unsigned char *reflabel = normalize_map_label(map->mem, label);
+  unsigned char *reflabel = map->web_reference_labels ? cmark_reference_key(map->mem, label) : normalize_map_label(map->mem, label);
 
   /* empty reference name, or composed from only whitespace */
   if (reflabel == NULL)

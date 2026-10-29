@@ -275,7 +275,7 @@ static int S_render_node(cmark_renderer *renderer, cmark_node *node,
     break;
 
   case CMARK_NODE_ATTRIBUTE:
-    OUT(cmark_node_get_literal(node), allow_wrap, NORMAL);
+    /* Attribute containers have no literal. Render their children only. */
     break;
 
   case CMARK_NODE_FOOTNOTE_DEFINITION:

@@ -820,6 +820,8 @@ char *cmark_render_latex_with_mem(cmark_node *root, int options, int width, cmar
 
 /** Preserve ordinary link reference definitions as lossless leaves in source order; reference usage rewriting remains disabled. */
 #define CMARK_OPT_REFERENCE_DEFINITIONS (1 << 26)
+/** Preserve actual reference usage identity; implies REFERENCE_DEFINITIONS. */
+#define CMARK_OPT_REFERENCE_USAGES (1 << 27)
 
 CMARK_GFM_EXPORT const char *cmark_node_get_reference_label(cmark_node *node);
 CMARK_GFM_EXPORT const char *cmark_node_get_reference_identifier_source(cmark_node *node);
@@ -922,6 +924,14 @@ const char *cmark_version_string(void);
 #endif
 
 typedef int32_t bufsize_t;
+
+
+CMARK_GFM_EXPORT const char *cmark_node_get_reference_usage_label(cmark_node *node);
+CMARK_GFM_EXPORT const char *cmark_node_get_reference_usage_source(cmark_node *node);
+CMARK_GFM_EXPORT int cmark_node_get_reference_usage_type(cmark_node *node);
+
+CMARK_GFM_EXPORT char *cmark_reference_identifier(const char *source);
+CMARK_GFM_EXPORT void cmark_reference_identifier_free(char *value);
 
 #ifdef __cplusplus
 }

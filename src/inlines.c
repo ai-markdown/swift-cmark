@@ -94,6 +94,10 @@ static inline bool S_is_line_end_char(char c) {
 static delimiter *S_insert_emph(subject *subj, delimiter *opener, bool web_emphasis,
                                 delimiter *closer);
 
+static int reference_label(subject *subj, cmark_chunk *label);
+static int reference_factory_size(cmark_node *parent, bufsize_t at, const unsigned char *data, bufsize_t size);
+static cmark_chunk reference_string(cmark_mem *mem, cmark_node *parent, bufsize_t at,
+                                    const unsigned char *data, bufsize_t size, bool decode, bool title);
 static int parse_inline(cmark_parser *parser, subject *subj, cmark_node *parent, int options);
 
 static void subject_from_buf(cmark_mem *mem, int line_number, int block_offset, subject *e,
@@ -1025,7 +1029,7 @@ static cmark_node *handle_backslash(cmark_parser *parser, subject *subj) {
 
 // Parse an entity or a regular "&" string.
 // Assumes the subject has an '&' character at the current position.
-static cmark_node *handle_entity(subject *subj) {
+static cmark_node *handle_entity(subject *subj, bool reference_tokens) {
   cmark_strbuf ent = CMARK_BUF_INIT(subj->mem);
   bufsize_t len;
 
@@ -1038,7 +1042,17 @@ static cmark_node *handle_entity(subject *subj) {
     return make_str(subj, subj->pos - 1, subj->pos - 1, cmark_chunk_literal("&"));
 
   subj->pos += len;
-  return make_str(subj, subj->pos - 1 - len, subj->pos - 1, cmark_chunk_buf_detach(&ent));
+  cmark_node *node = make_str(subj, subj->pos - 1 - len, subj->pos - 1, cmark_chunk_buf_detach(&ent));
+  if (reference_tokens) {
+    cmark_strbuf web = CMARK_BUF_INIT(subj->mem);
+    cmark_decode_string_token(&web, subj->input.data + subj->pos - 1 - len, len + 1);
+    if (web.size != node->as.literal.len || memcmp(web.ptr, node->as.literal.data, web.size)) {
+      node->reference_usage = subj->mem->calloc(1, sizeof(cmark_reference_usage));
+      node->reference_usage->label = cmark_chunk_buf_detach(&web);
+    }
+    cmark_strbuf_free(&web);
+  }
+  return node;
 }
 
 // Clean a URL: remove surrounding whitespace, and remove \ that escape
@@ -1447,6 +1461,8 @@ static cmark_node *handle_close_bracket(cmark_parser *parser, subject *subj) {
   int found_label;
   cmark_node *tmp, *tmpnext;
   bool is_image;
+  int usage_type = 0;
+  cmark_chunk usage_source = CMARK_CHUNK_EMPTY, usage_label = CMARK_CHUNK_EMPTY;
 
   advance(subj); // advance past ]
   initial_pos = subj->pos;
@@ -1508,6 +1524,36 @@ static cmark_node *handle_close_bracket(cmark_parser *parser, subject *subj) {
     }
   }
 
+  if (parser->options & CMARK_OPT_REFERENCE_USAGES) {
+    bufsize_t label_at = opener->position;
+    bufsize_t label_size = initial_pos - opener->position - 1;
+    usage_type = 1;
+    if (peek_char(subj) == '[') {
+      if (peek_at(subj, subj->pos + 1) == ']') {
+        subj->pos += 2; usage_type = 2;
+      } else {
+        bufsize_t label_start = subj->pos;
+        cmark_chunk parsed;
+        if (!reference_label(subj, &parsed) || parsed.len == 0) goto noMatch;
+        label_at = label_start + 1; label_size = subj->pos - label_start - 2;
+        usage_type = 3;
+      }
+    }
+    usage_source = reference_string(subj->mem, subj->math_parent, label_at,
+                                   subj->input.data + label_at, label_size, false, false);
+    // Full labels have factoryLabel's UTF-16 limit. Shortcut/collapsed use the
+    // first label whose definition existence has already constrained its size.
+    if (usage_type == 3) {
+      if (reference_factory_size(subj->math_parent, label_at, subj->input.data + label_at, label_size) > 999) goto noMatch;
+    }
+    ref = (cmark_reference *)cmark_map_lookup(subj->refmap, &usage_source);
+    if (!ref || ref->is_attributes_reference) goto noMatch;
+    usage_label = reference_string(subj->mem, subj->math_parent, label_at,
+                                  subj->input.data + label_at, label_size, true, false);
+    url = chunk_clone(subj->mem, &ref->url);
+    title = chunk_clone(subj->mem, &ref->title);
+    goto match;
+  }
   // Next, look for a following [link label] that matches in refmap.
   // skip spaces
   raw_label = cmark_chunk_literal("");
@@ -1539,6 +1585,8 @@ static cmark_node *handle_close_bracket(cmark_parser *parser, subject *subj) {
   }
 
 noMatch:
+  cmark_chunk_free(subj->mem, &usage_source);
+  cmark_chunk_free(subj->mem, &usage_label);
   // If we fall through to here, it means we didn't match a link.
   // What if we're a footnote link?
   if (parser->options & CMARK_OPT_FOOTNOTES &&
@@ -1644,10 +1692,24 @@ match:
   inl = make_simple(subj->mem, is_image ? CMARK_NODE_IMAGE : CMARK_NODE_LINK);
   inl->as.link.url = url;
   inl->as.link.title = title;
+  if (usage_type) {
+    inl->reference_usage = subj->mem->calloc(1, sizeof(cmark_reference_usage));
+    inl->reference_usage->source = usage_source;
+    inl->reference_usage->label = usage_label;
+    inl->reference_usage->type = usage_type;
+  }
   inl->start_line = opener->inl_text->start_line;
   inl->start_column = opener->inl_text->start_column;
   inl->end_line = subj->line;
   inl->end_column = subj->pos + subj->column_offset + subj->block_offset;
+  if (usage_type) {
+    math_source_point(subj, opener->position - (is_image ? 2 : 1), &inl->start_line, &inl->start_column);
+    int column = inl->end_column + 1;
+    math_source_point(subj, subj->pos, &inl->end_line, &column);
+    inl->end_column = column - 1;
+    subj->line = inl->end_line;
+    subj->column_offset = column - 1 - subj->pos - subj->block_offset;
+  }
   cmark_node_insert_before(opener->inl_text, inl);
   // Add link text:
   tmp = opener->inl_text->next;
@@ -1658,6 +1720,20 @@ match:
     tmp = tmpnext;
   }
 
+  if (usage_type) {
+    // Pending Web entity values are committed only inside an actually matched
+    // reference label; direct links and surrounding ordinary text keep legacy values.
+    cmark_node *current = inl->first_child;
+    while (current) {
+      if (current->type == CMARK_NODE_TEXT && current->reference_usage && !current->reference_usage->type) {
+        cmark_chunk_free(subj->mem, &current->as.literal);
+        current->as.literal = current->reference_usage->label;
+        current->reference_usage->label = cmark_chunk_literal("");
+      }
+      if (current->first_child) current = current->first_child;
+      else { while (current != inl && !current->next) current = current->parent; current = current == inl ? NULL : current->next; }
+    }
+  }
   // Free the bracket [:
   cmark_node_free(opener->inl_text);
 
@@ -1821,7 +1897,7 @@ static int parse_inline(cmark_parser *parser, subject *subj, cmark_node *parent,
     break;
   case '`':
     new_inl = handle_backticks(subj, options);
-    if ((options & CMARK_OPT_MATH) && new_inl->type == CMARK_NODE_CODE &&
+    if ((options & (CMARK_OPT_MATH | CMARK_OPT_REFERENCE_USAGES)) && new_inl->type == CMARK_NODE_CODE &&
         strcmp(cmark_node_get_type_string(parent), "table_cell") == 0) {
       cmark_chunk *literal = &new_inl->as.literal;
       bufsize_t w = 0;
@@ -1837,7 +1913,7 @@ static int parse_inline(cmark_parser *parser, subject *subj, cmark_node *parent,
     new_inl = handle_backslash(parser, subj);
     break;
   case '&':
-    new_inl = handle_entity(subj);
+    new_inl = handle_entity(subj, (options & CMARK_OPT_REFERENCE_USAGES) != 0);
     break;
   case '<':
     new_inl = handle_pointy_brace(subj, options);
@@ -1874,7 +1950,7 @@ static int parse_inline(cmark_parser *parser, subject *subj, cmark_node *parent,
   case '^':
     // TODO: Support a name between ^ and [
     // specifically check for '^['
-    if (peek_char_n(subj, 1) == '[') {
+    if (!(options & CMARK_OPT_REFERENCE_USAGES) && peek_char_n(subj, 1) == '[') {
       advance(subj);
       advance(subj);
       new_inl = make_str(subj, subj->pos - 2, subj->pos - 1, cmark_chunk_literal("^["));
@@ -2038,6 +2114,36 @@ static const cmark_math_line *reference_row(cmark_node *parent, bufsize_t at) {
   }
   return lo ? &parent->math_lines[lo - 1] : NULL;
 }
+// factoryLabel consumes virtual tab spaces as events, not merely source UTF-16.
+static int reference_factory_size(cmark_node *parent, bufsize_t at, const unsigned char *data, bufsize_t size) {
+  const cmark_math_line *row = reference_row(parent, at);
+  int line = row ? row->line : parent->start_line;
+  bufsize_t offset = row ? row->offset : 0;
+  int start_column = row ? row->visual_column : parent->reference_visual_column ? parent->reference_visual_column : parent->start_column + parent->internal_offset;
+  if (parent->reference_cached_valid && parent->reference_cached_line == line && parent->reference_cached_offset <= at) {
+    offset = parent->reference_cached_offset; start_column = parent->reference_cached_column;
+  }
+  int column = cmark_reference_column(start_column, parent->content.ptr + offset, at - offset);
+  parent->reference_cached_offset = at; parent->reference_cached_column = column;
+  parent->reference_cached_line = line; parent->reference_cached_valid = true;
+  int length = 0;
+  for (bufsize_t i = 0; i < size; i++) {
+    unsigned char c = data[i];
+    if (c == '\n') {
+      const cmark_math_line *next = reference_row(parent, at + i + 1);
+      if (next && next != row) {
+        int end = cmark_reference_column(next->prefix_visual_column, next->prefix.data, next->prefix.len);
+        length += end - next->prefix_visual_column;
+        column = next->visual_column; row = next;
+      } else column = 1;
+    } else if (c != '\r' && (c < 0x80 || c >= 0xc0)) {
+      int next = c == '\t' ? column + 4 - ((column - 1) % 4) : column + (c >= 0xf0 ? 2 : 1);
+      length += next - column; column = next;
+    }
+    if (length > 999) return length;
+  }
+  return length;
+}
 static cmark_chunk reference_string(cmark_mem *mem, cmark_node *parent,
                                     bufsize_t at, const unsigned char *data, bufsize_t size,
                                     bool decode, bool title) {
@@ -2138,6 +2244,9 @@ static bufsize_t parse_reference(cmark_mem *mem, cmark_chunk *input,
   cmark_chunk source_label = cmark_chunk_literal("");
   if (definition) {
     source_label = reference_string(mem, parent, base + 1, input->data + 1, label_end - 2, false, false);
+    if (reference_factory_size(parent, base + 1, input->data + 1, label_end - 2) > 999) {
+      cmark_chunk_free(mem, &source_label); return 0;
+    }
     int length = 0;
     for (bufsize_t i = 0; i < source_label.len; i++) {
       unsigned char c = source_label.data[i];
@@ -2146,7 +2255,7 @@ static bufsize_t parse_reference(cmark_mem *mem, cmark_chunk *input,
     }
   }
   // insert reference into refmap
-  cmark_reference_create(refmap, &lab, &url, &title);
+  if (!refmap->web_reference_labels) cmark_reference_create(refmap, &lab, &url, &title);
   if (definition) {
     cmark_node *node = cmark_node_new_with_mem(CMARK_NODE_LINK_REFERENCE_DEFINITION, mem);
     node->reference_definition = mem->calloc(1, sizeof(cmark_reference_definition));
@@ -2158,6 +2267,19 @@ static bufsize_t parse_reference(cmark_mem *mem, cmark_chunk *input,
     if (has_title) {
       def->title = reference_string(mem, parent, base + title_start + 1, input->data + title_start + 1, title_size - 2, true, true);
       def->has_title = def->title.len != 0;
+    }
+    if (refmap->web_reference_labels) {
+      cmark_chunk quoted_title = def->has_title ? def->title : cmark_chunk_literal("");
+      // Allocate an entry through the existing map path, then replace legacy
+      // clean_url/title output with the independently owned Web token values.
+      cmark_reference_create(refmap, &def->identifier_source, &url, &title);
+      if (refmap->refs) {
+        cmark_reference *entry = (cmark_reference *)refmap->refs;
+        cmark_chunk_free(mem, &entry->url); cmark_chunk_free(mem, &entry->title);
+        entry->url = chunk_clone(mem, &def->destination);
+        entry->title = chunk_clone(mem, &quoted_title);
+        entry->entry.size = entry->url.len + entry->title.len;
+      }
     }
     bufsize_t last = subj.pos;
     if (last && input->data[last - 1] == '\n') last--;

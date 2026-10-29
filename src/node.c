@@ -173,7 +173,17 @@ cmark_node *cmark_node_new(cmark_node_type type) {
   return cmark_node_new_with_ext(type, NULL);
 }
 
+static void clear_reference_usage(cmark_node *node) {
+  if (node->reference_usage) {
+    cmark_chunk_free(NODE_MEM(node), &node->reference_usage->label);
+    cmark_chunk_free(NODE_MEM(node), &node->reference_usage->source);
+    NODE_MEM(node)->free(node->reference_usage);
+    node->reference_usage = NULL;
+  }
+}
+
 static void free_node_as(cmark_node *node) {
+  clear_reference_usage(node);
   if (node->reference_definition) {
     cmark_reference_definition *def = node->reference_definition;
     cmark_chunk_free(NODE_MEM(node), &def->label);
@@ -785,6 +795,7 @@ int cmark_node_set_url(cmark_node *node, const char *url) {
   switch (node->type) {
   case CMARK_NODE_LINK:
   case CMARK_NODE_IMAGE:
+    clear_reference_usage(node);
     cmark_chunk_set_cstr(NODE_MEM(node), &node->as.link.url, url);
     return 1;
   default:
@@ -818,6 +829,7 @@ int cmark_node_set_title(cmark_node *node, const char *title) {
   switch (node->type) {
   case CMARK_NODE_LINK:
   case CMARK_NODE_IMAGE:
+    clear_reference_usage(node);
     cmark_chunk_set_cstr(NODE_MEM(node), &node->as.link.title, title);
     return 1;
   default:
@@ -1205,3 +1217,11 @@ const char *cmark_node_get_reference_destination(cmark_node *node) {
 const char *cmark_node_get_reference_title(cmark_node *node) {
   return node && node->reference_definition && node->reference_definition->has_title ? cmark_chunk_to_cstr(NODE_MEM(node), &node->reference_definition->title) : NULL;
 }
+
+const char *cmark_node_get_reference_usage_label(cmark_node *node) {
+  return node && node->reference_usage && node->reference_usage->type ? cmark_chunk_to_cstr(NODE_MEM(node), &node->reference_usage->label) : NULL;
+}
+const char *cmark_node_get_reference_usage_source(cmark_node *node) {
+  return node && node->reference_usage && node->reference_usage->type ? cmark_chunk_to_cstr(NODE_MEM(node), &node->reference_usage->source) : NULL;
+}
+int cmark_node_get_reference_usage_type(cmark_node *node) { return node && node->reference_usage ? node->reference_usage->type : 0; }
