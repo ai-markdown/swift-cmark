@@ -934,6 +934,8 @@ CMARK_GFM_EXPORT int cmark_node_get_reference_usage_type(cmark_node *node);
 
 CMARK_GFM_EXPORT char *cmark_reference_identifier(const char *source);
 CMARK_GFM_EXPORT void cmark_reference_identifier_free(char *value);
+CMARK_GFM_EXPORT unsigned char *cmark_decode_reference_label(const char *source, size_t size, size_t *decoded_size);
+CMARK_GFM_EXPORT void cmark_decoded_reference_label_free(unsigned char *value);
 
 #ifdef __cplusplus
 }

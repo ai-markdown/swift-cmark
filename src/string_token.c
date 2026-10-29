@@ -47,3 +47,16 @@ bufsize_t cmark_decode_string_token_part(cmark_strbuf *out, const unsigned char 
 void cmark_decode_string_token(cmark_strbuf *out, const unsigned char *data, bufsize_t size) {
   for (bufsize_t i = 0; i < size; ) i += cmark_decode_string_token_part(out, data + i, size - i);
 }
+
+/* Length-aware bridge to the existing single-pass decoder with explicit ownership; parser options are unchanged. */
+unsigned char *cmark_decode_reference_label(const char *source, size_t size, size_t *decoded_size) {
+  if (!source || !decoded_size || size > INT32_MAX) return NULL;
+  cmark_mem *mem = cmark_get_default_mem_allocator();
+  cmark_strbuf out = CMARK_BUF_INIT(mem);
+  cmark_decode_string_token(&out, (const unsigned char *)source, (bufsize_t)size);
+  *decoded_size = (size_t)out.size;
+  return cmark_strbuf_detach(&out);
+}
+void cmark_decoded_reference_label_free(unsigned char *value) {
+  cmark_get_default_mem_allocator()->free(value);
+}
