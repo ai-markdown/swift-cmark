@@ -16,6 +16,25 @@ static cmark_node *match(cmark_syntax_extension *self, cmark_parser *parser,
   if (character != '~')
     return NULL;
 
+  if (parser->options & CMARK_OPT_WEB_EMPHASIS) {
+    cmark_chunk *input = cmark_inline_parser_get_chunk(inline_parser);
+    int start = cmark_inline_parser_get_offset(inline_parser), end = start;
+    while (end < input->len && input->data[end] == '~') end++;
+    // Web rejects the complete run when a third tilde is present: do not restart
+    // at the final one/two markers after cmark's fixed scan buffer boundary.
+    if (end - start > 2) {
+      cmark_inline_parser_set_offset(inline_parser, end);
+      res = cmark_node_new_with_mem(CMARK_NODE_TEXT, parser->mem);
+      cmark_chunk text = cmark_chunk_dup(input, start, end - start);
+      cmark_node_set_literal(res, cmark_chunk_to_cstr(parser->mem, &text));
+      cmark_chunk_free(parser->mem, &text);
+      res->start_line = res->end_line = cmark_inline_parser_get_line(inline_parser);
+      res->end_column = cmark_inline_parser_get_column(inline_parser) - 1;
+      res->start_column = res->end_column - (end - start) + 1;
+      return res;
+    }
+  }
+
   delims = cmark_inline_parser_scan_delimiters(
       inline_parser, sizeof(buffer) - 1, '~',
       &left_flanking,

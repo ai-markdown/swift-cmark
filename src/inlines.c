@@ -1,4 +1,5 @@
 #include <stdbool.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -85,7 +86,7 @@ static inline bool S_is_line_end_char(char c) {
   return (c == '\n' || c == '\r');
 }
 
-static delimiter *S_insert_emph(subject *subj, delimiter *opener,
+static delimiter *S_insert_emph(subject *subj, delimiter *opener, bool web_emphasis,
                                 delimiter *closer);
 
 static int parse_inline(cmark_parser *parser, subject *subj, cmark_node *parent, int options);
@@ -425,12 +426,61 @@ static cmark_node *handle_backticks(subject *subj, int options) {
 }
 
 
+// Fixed default Web micromark-extension-cjk-friendly Unicode scalar classes.
+#include "web-emphasis-unicode.inc"
+static int web_emphasis_classify(int32_t code) {
+  if (code < 0) return 1;
+  size_t left = 0, right = sizeof(web_emphasis_character_classes) /
+                                  sizeof(web_emphasis_character_classes[0]);
+  while (left < right) {
+    size_t middle = left + (right - left) / 2;
+    if ((uint32_t)code < web_emphasis_character_classes[middle][0]) right = middle;
+    else if ((uint32_t)code > web_emphasis_character_classes[middle][1]) left = middle + 1;
+    else return web_emphasis_character_classes[middle][2];
+  }
+  return 0;
+}
+
+static void web_emphasis_flanking(subject *subj, int32_t previous,
+                                   bufsize_t previous_pos, int32_t following,
+                                   unsigned char marker, bool marker_before,
+                                   bool marker_after, bool *can_open, bool *can_close) {
+  int before = web_emphasis_classify(previous);
+  int after = web_emphasis_classify(following);
+  // General-use VS observes its primary scalar; FE01 selects CJK quote forms.
+  if (before == 0x4000 && previous_pos > 0) {
+    bufsize_t position = previous_pos - 1;
+    while (position > 0 && (subj->input.data[position] & 0xc0) == 0x80) position--;
+    int32_t primary = 0;
+    if (cmark_utf8proc_iterate(subj->input.data + position, previous_pos - position,
+                               &primary) > 0) {
+      int category = web_emphasis_classify(primary);
+      if (primary && !(category & 1)) {
+        bool cjk_quote = previous == 0xfe01 &&
+                         (primary == 0x2018 || primary == 0x2019 ||
+                          primary == 0x201c || primary == 0x201d);
+        before = cjk_quote ? 0x1002 : (category & ~0x2000);
+      }
+    }
+  }
+  bool before_punctuation = (before & 0x1002) == 2;
+  bool after_punctuation = (after & 0x1002) == 2;
+  bool before_space_or_punctuation = before_punctuation || (before & 1);
+  bool after_space_or_punctuation = after_punctuation || (after & 1);
+  bool open = !after_space_or_punctuation ||
+              (after_punctuation && (before_space_or_punctuation || (before & 0x3000))) || marker_after;
+  bool close = !before_space_or_punctuation ||
+               (before_punctuation && (after_space_or_punctuation || (after & 0x1000))) || marker_before;
+  *can_open = marker == '*' ? open : open && ((before & 3) || !close);
+  *can_close = marker == '*' ? close : close && ((after & 3) || !open);
+}
+
 // Scan ***, **, or * and return number scanned, or 0.
 // Advances position.
 static int scan_delims(cmark_parser *parser, subject *subj, unsigned char c,
                        bool *can_open, bool *can_close) {
   int numdelims = 0;
-  bufsize_t before_char_pos, after_char_pos;
+  bufsize_t before_char_pos = 0, after_char_pos;
   int32_t after_char = 0;
   int32_t before_char = 0;
   int len;
@@ -481,6 +531,14 @@ static int scan_delims(cmark_parser *parser, subject *subj, unsigned char c,
     }
   }
 
+  if (!skip_extension_delimiters) {
+    bool marker_before = before_char == '*' || before_char == '_' || ((before_char == '~' || before_char == '=') && parser->skip_chars[before_char]);
+    bool marker_after = after_char == '*' || after_char == '_' || ((after_char == '~' || after_char == '=') && parser->skip_chars[after_char]);
+    web_emphasis_flanking(subj, before_char, before_char_pos, after_char, c,
+                           marker_before, marker_after, can_open, can_close);
+    return numdelims;
+  }
+
   left_flanking = numdelims > 0 && !cmark_utf8proc_is_space(after_char) &&
                   (!cmark_utf8proc_is_punctuation(after_char) ||
                    cmark_utf8proc_is_space(before_char) ||
@@ -489,13 +547,6 @@ static int scan_delims(cmark_parser *parser, subject *subj, unsigned char c,
                    (!cmark_utf8proc_is_punctuation(before_char) ||
                     cmark_utf8proc_is_space(after_char) ||
                     cmark_utf8proc_is_punctuation(after_char));
-  if (!skip_extension_delimiters) {
-    // micromark attentionMarkers allow registered tilde/equal delimiters to flank.
-    if ((after_char == '~' || after_char == '=') && parser->skip_chars[after_char])
-      left_flanking = true;
-    if ((before_char == '~' || before_char == '=') && parser->skip_chars[before_char])
-      right_flanking = true;
-  }
   if (c == '_') {
     *can_open = left_flanking &&
                 (!right_flanking || cmark_utf8proc_is_punctuation(before_char));
@@ -747,7 +798,7 @@ static void process_emphasis(cmark_parser *parser, subject *subj, bufsize_t stac
           closer = closer->next;
       } else if (closer->delim_char == '*' || closer->delim_char == '_') {
         if (opener_found) {
-          closer = S_insert_emph(subj, opener, closer);
+          closer = S_insert_emph(subj, opener, (parser->options & CMARK_OPT_WEB_EMPHASIS) != 0, closer);
         } else {
           closer = closer->next;
         }
@@ -792,7 +843,7 @@ static void process_emphasis(cmark_parser *parser, subject *subj, bufsize_t stac
   }
 }
 
-static delimiter *S_insert_emph(subject *subj, delimiter *opener,
+static delimiter *S_insert_emph(subject *subj, delimiter *opener, bool web_emphasis,
                                 delimiter *closer) {
   delimiter *delim, *tmp_delim;
   bufsize_t use_delims;
@@ -836,6 +887,14 @@ static delimiter *S_insert_emph(subject *subj, delimiter *opener,
   emph->end_line = closer_inl->end_line;
   emph->start_column = opener_inl->start_column;
   emph->end_column = closer_inl->end_column;
+  if (web_emphasis) {
+    // A partial run consumes the opener suffix and closer prefix, not their
+    // complete source spans. Keep leftover runs aligned for nested matches.
+    emph->start_column = opener_inl->start_column + opener_num_chars;
+    emph->end_column = closer_inl->start_column + use_delims - 1;
+    if (opener_num_chars) opener_inl->end_column = emph->start_column - 1;
+    if (closer_num_chars) closer_inl->start_column = emph->end_column + 1;
+  }
 
   // if opener has 0 characters, remove it and its associated inline
   if (opener_num_chars == 0) {
