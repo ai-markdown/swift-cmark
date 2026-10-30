@@ -1,6 +1,16 @@
 {
   "sourceRepository": "https://github.com/ai-markdown/ai-markdown-swift.git",
   "upstreamBaseline": "08ddb528923cc1a6527e02b7a1aee9e516ca749a",
+  "testSources": [
+    {
+      "file": "api_test/main.c:math_container_boundary",
+      "sourceRepository": "https://github.com/ai-markdown/ai-markdown.git",
+      "sourceRevision": "e9ec1799fdc380d99ce0a6313023515895bbd7bf",
+      "sourceFiles": ["packages/engine/src/preprocessors/latex.test.ts", "packages/engine/package.json"],
+      "description": "Container-ended math regressions and expanded EOF, fence, whitespace, line-ending, and container-prefix cases; expected values checked against the pinned remark-parse/remark-math runtime.",
+      "license": "MIT; AIMarkdown/ThirdPartyLicenses/ai-markdown/LICENSE-ai-markdown"
+    }
+  ],
   "changes": [
     {
       "change": "feat(footnotes): preserve definitions and labels in an opt-in lossless AST",

@@ -1579,6 +1579,82 @@ static void table_spans(test_batch_runner *runner) {
   }
 }
 
+static char *math_boundary_eol(const char *source, const char *eol) {
+  size_t count = 0;
+  for (const char *at = source; *at; at++) if (*at == '\n') count++;
+  size_t length = strlen(source) + count * (strlen(eol) - 1);
+  char *result = malloc(length + 1), *out = result;
+  for (const char *at = source; *at; at++) {
+    if (*at == '\n') { memcpy(out, eol, strlen(eol)); out += strlen(eol); }
+    else *out++ = *at;
+  }
+  *out = 0;
+  return result;
+}
+
+static void math_container_boundary(test_batch_runner *runner) {
+  // Values from remark-parse + remark-math at ai-markdown Web
+  // e9ec1799fdc380d99ce0a6313023515895bbd7bf. Raw C source ranges are
+  // deliberately retained; changing a compiled value must not trim source.
+  static const struct {
+    const char *source, *value;
+    int start_line, start_column, end_line, end_column;
+  } cases[] = {
+    {"- Item\n\n  $$\n  x\n\nAfter", "x", 3, 3, 5, 0},
+    {"- Item\n\n  $$\n  x\n\n\nAfter", "x\n", 3, 3, 6, 0},
+    {"- Item\n\n  $$\n  x  \n  \nAfter", "x  ", 3, 3, 5, 2},
+    {"- Item\n\n  $$\n  x\n\n", "x\n", 3, 3, 6, 0},
+    {"- Item\n\n  $$\n  x\n\n  $$\nAfter", "x\n", 3, 3, 6, 4},
+    {"- Item\n\n  $$\n  x\n\n- Next", "x\n", 3, 3, 6, 0},
+    {"- Item\n\n  $$\n  x\n\n1. Next", "x\n", 3, 3, 6, 0},
+    {"- Item\n\n  $$\n  x\n\n> After", "x\n", 3, 3, 5, 0},
+    {"- Item\n\n  $$\n  x\n\n# After", "x", 3, 3, 5, 0},
+    {"- Item\n\n  $$\n  x\n\n---", "x", 3, 3, 5, 0},
+    {"- Item\n\n  $$\n  x\n\n```\nx\n```", "x", 3, 3, 5, 0},
+    {"- Item\n\n  $$\n  x\n\n<div>x</div>", "x", 3, 3, 5, 0},
+    {"> $$\n> x\n>\nAfter", "x", 1, 3, 3, 1},
+    {"> $$\n> x\n\nAfter", "x", 1, 3, 2, 3},
+    {"$$\nx\n\n", "x\n", 1, 1, 4, 0},
+    {"$$\nx\n\n$$", "x\n", 1, 1, 4, 2},
+    {"- Item\n\n  $$\n  x\n  \t \nAfter", "x\n\t ", 3, 3, 5, 4},
+    {"- Item\n\n  $$\n  x\n  \n  y\n\nAfter", "x\n\ny", 3, 3, 7, 0}
+  };
+  static const char *endings[] = {"\n", "\r\n", "\r"};
+  for (size_t c = 0; c < sizeof(cases) / sizeof(cases[0]); c++) {
+    for (size_t e = 0; e < sizeof(endings) / sizeof(endings[0]); e++) {
+      char *source = math_boundary_eol(cases[c].source, endings[e]);
+      char *value = math_boundary_eol(cases[c].value, endings[e]);
+      for (int chunked = 0; chunked <= 1; chunked++) {
+        cmark_parser *parser = cmark_parser_new(CMARK_OPT_MATH | CMARK_OPT_WEB_POSITIONS);
+        if (chunked) {
+          for (size_t i = 0; i < strlen(source); i++) cmark_parser_feed(parser, source + i, 1);
+        } else cmark_parser_feed(parser, source, strlen(source));
+        cmark_node *document = cmark_parser_finish(parser);
+        cmark_iter *iter = cmark_iter_new(document);
+        cmark_node *math = NULL;
+        cmark_event_type event;
+        while ((event = cmark_iter_next(iter)) != CMARK_EVENT_DONE) {
+          cmark_node *node = cmark_iter_get_node(iter);
+          if (event == CMARK_EVENT_ENTER && node->type == CMARK_NODE_MATH_BLOCK) { math = node; break; }
+        }
+        OK(runner, math != NULL, "math boundary %zu/%zu/%d has math", c, e, chunked);
+        if (math) {
+          STR_EQ(runner, cmark_node_get_literal(math), value, "math boundary value %zu/%zu/%d", c, e, chunked);
+          INT_EQ(runner, math->start_line, cases[c].start_line, "math boundary start line");
+          INT_EQ(runner, math->start_column, cases[c].start_column, "math boundary start column");
+          INT_EQ(runner, math->end_line, cases[c].end_line, "math boundary end line");
+          INT_EQ(runner, math->end_column, cases[c].end_column, "math boundary end column");
+        }
+        cmark_iter_free(iter);
+        cmark_node_free(document);
+        cmark_parser_free(parser);
+      }
+      free(source);
+      free(value);
+    }
+  }
+}
+
 int main() {
   int retval;
   test_batch_runner *runner = test_batch_runner_new();
@@ -1616,6 +1692,7 @@ int main() {
   verify_custom_attributes_node_with_footnote(runner);
   parser_interrupt(runner);
   table_spans(runner);
+  math_container_boundary(runner);
 
   test_print_summary(runner);
   retval = test_ok(runner) ? 0 : 1;

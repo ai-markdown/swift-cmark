@@ -539,6 +539,32 @@ static cmark_node *finalize(cmark_parser *parser, cmark_node *b) {
     if (pos < node_content->size && node_content->ptr[pos] == '\r') pos++;
     if (pos < node_content->size && node_content->ptr[pos] == '\n') pos++;
     cmark_strbuf_drop(node_content, pos);
+    // A container ending before an ordinary flow line does not give that
+    // boundary's line ending to mathFlow. A new document container (a list
+    // item, list, or block quote) does. Keep EOF and explicit fences distinct,
+    // and remove exactly one boundary EOL, not all trailing blank lines or
+    // whitespace. Source coordinates above still describe the original bytes.
+    bool container_prefix = false;
+    if (!b->math_closing_fence && parser->curline.size > 0) {
+      for (cmark_node *owner = b->parent; owner; owner = owner->parent) {
+        cmark_node *next = owner->next;
+        if (next && next->start_line == parser->line_number &&
+            (next->type == CMARK_NODE_ITEM || next->type == CMARK_NODE_LIST ||
+             next->type == CMARK_NODE_BLOCK_QUOTE)) {
+          container_prefix = true;
+          break;
+        }
+      }
+      if (!container_prefix) {
+        if (node_content->size && node_content->ptr[node_content->size - 1] == '\n') {
+          cmark_strbuf_truncate(node_content, node_content->size - 1);
+          if (node_content->size && node_content->ptr[node_content->size - 1] == '\r')
+            cmark_strbuf_truncate(node_content, node_content->size - 1);
+        } else if (node_content->size && node_content->ptr[node_content->size - 1] == '\r') {
+          cmark_strbuf_truncate(node_content, node_content->size - 1);
+        }
+      }
+    }
     // Math value excludes only its last source line ending, retaining internal raw EOLs.
     if (node_content->size && node_content->ptr[node_content->size - 1] == '\n') {
       cmark_strbuf_truncate(node_content, node_content->size - 1);
