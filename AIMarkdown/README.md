@@ -21,6 +21,8 @@ Nothing is captured when the ledger is unsupported (as for list spread), when wh
 
 Web literal autolinks retain matched Link/Text subject spans for physical-row mapping. Hyphen and period are scan stops; underscore remains owned by the builtin attention parser and does not gain literal-token position evidence. `web_autolink_closeout_test` checks 277 actual Web inputs and opt-in isolation.
 
+With definition-list syntax enabled, multiline inline HTML compiles the actual matched token's physical line endings and at most three virtual columns of linePrefix. Partially consumed tabs retain virtual spaces; a tab after that limit stays literal. This preserves the legacy profile's literal and source ranges, and keeps custom source coordinates independent of compiled value length. `web_inline_html_closeout_test` checks 365 actual Web raw/HAST inputs, including the original 34 multiline-tag math-boundary prefixes, whole/byte feeds and tracking parity. Corrected literal values do not imply continuous author-byte provenance or recovered HAST positions.
+
 The upstream baseline is `08ddb528923cc1a6527e02b7a1aee9e516ca749a`. This repository retains upstream names; `ai-markdown-parser-swift` owns symbol isolation and Swift Package distribution. Maintain parser changes here rather than reapplying the same patches in the integration repository.
 
 Original implementation provenance, patch paths, and checksums are recorded in `provenance.json`. Third-party licenses are bundled in `ThirdPartyLicenses`; upstream license files remain unchanged. The source paths in the provenance record refer to the pinned `ai-markdown-swift` source repository, not to files in this fork.

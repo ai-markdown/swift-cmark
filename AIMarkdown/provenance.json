@@ -75,6 +75,30 @@
       "sourceBundleSHA256": "625ade16a17465f7f7854676cdfb0c2e69958b4c84072b7d587ab281d45de8c7",
       "description": "277 pinned Web autolink inputs: punctuation-start literal emails and matched Link/Text subject spans, physical table/container rows, both Web-position modes and underscore attention isolation.",
       "license": "MIT; AIMarkdown/ThirdPartyLicenses/ai-markdown/LICENSE-ai-markdown"
+    },
+    {
+      "file": "api_test/web_inline_html_closeout.c",
+      "sourceRepository": "https://github.com/ai-markdown/ai-markdown.git",
+      "sourceRevision": "e9ec1799fdc380d99ce0a6313023515895bbd7bf",
+      "sourceFiles": [
+        "packages/engine/package.json"
+      ],
+      "sourceBundleSHA256": "625ade16a17465f7f7854676cdfb0c2e69958b4c84072b7d587ab281d45de8c7",
+      "originalMathBoundary": {
+        "sourceRepository": "https://github.com/ai-markdown/ai-markdown-swift.git",
+        "fixture": "Tests/AIMarkdownCoreTests/Fixtures/MathBoundaryOracle/results.json",
+        "sha256": "70f2d5d69c67c562fe162669a11a6515e076be2e0e2ddd2ebedadd6c483b553a",
+        "trace": "default/multilineTag",
+        "frames": [
+          20,
+          53
+        ]
+      },
+      "testFixtureSHA256": "3f03e36672fde16eb1c660cd97ddaa03bca9a04ae92d1e091b38f52344c0f5c5",
+      "legacyBaselineSHA256": "0378e4a0bf49b3870ac1ee9066945ba06f1695df12997f4891e18e70f810ac30",
+      "customBaselineSHA256": "5c457b223020d3965b95deb23afab6484d64d9e571253907d5722a60a2b14691",
+      "description": "365 actual raw Web and default HAST inputs: 34 original math-boundary prefixes, 324 HTML tag/comment/attribute whitespace, physical EOL and container controls, and seven ordinary/protected syntax cases. Whole/byte feeds, tracking parity, exact UTF-8 literals, unchanged custom source ranges and unchanged legacy literals/ranges are checked in 36502 assertions.",
+      "license": "MIT; AIMarkdown/ThirdPartyLicenses/ai-markdown/LICENSE-ai-markdown; AIMarkdown/ThirdPartyLicenses/definition-list/LICENSE-micromark-core-commonmark"
     }
   ],
   "changes": [
@@ -199,6 +223,15 @@
       "sourceSHA256": "fdb5fc71aa915c57edcb9d71f00ea60d930f4e331324b11f76a231ce5ed8d106",
       "description": "Definition container linePrefix sizes, opaque exit boundaries and physical term flow chunks, integrated with the existing opt-in list-spread event ledger.",
       "license": "MIT; AIMarkdown/ThirdPartyLicenses/definition-list/LICENSE-micromark-extension-definition-list"
+    },
+    {
+      "file": "src/inlines.c:definition_html_text_value",
+      "package": "micromark-core-commonmark",
+      "version": "2.0.3",
+      "sourceFile": "lib/html-text.js",
+      "sourceSHA256": "017f2b1f7be2303f4b849394f29430f4daea803dbb7eaf4ce82bb63e42e6c47c",
+      "description": "htmlText linePrefix excludes at most three virtual columns after a physical line ending. The opt-in definition-list profile compiles the actual matched subject interval through recorded physical EOL and visual-column events; source endpoints remain independent of compiled literal length.",
+      "license": "MIT; AIMarkdown/ThirdPartyLicenses/definition-list/LICENSE-micromark-core-commonmark"
     }
   ]
 }
