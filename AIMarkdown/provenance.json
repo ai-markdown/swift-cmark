@@ -147,5 +147,16 @@
       "patch": "scripts/softbreak-metadata-probe/c-softbreak-metadata.patch",
       "sha256": "6e1d0a59d3eff2425e507a5e86d01a43ceddec3cf021f07df10ce11a9edbe70d"
     }
+  ],
+  "implementationReferences": [
+    {
+      "file": "extensions/table.c:scan_web_table_cell",
+      "package": "micromark-extension-gfm-table",
+      "version": "2.1.1",
+      "sourceFile": "lib/syntax.js",
+      "sourceSHA256": "45aac9771cc150aa2e3b62ae12fc370c07b72732d84e847b47e09dd17b3a7bfe",
+      "description": "Web escape-state rules used to implement an opt-in C scanner; actual table row structure and positions checked against the pinned Web pipeline.",
+      "license": "MIT; AIMarkdown/ThirdPartyLicenses/table-code-metadata/LICENSE-micromark-extension-gfm-table"
+    }
   ]
 }
