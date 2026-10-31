@@ -294,6 +294,7 @@ static void add_line(cmark_node *node, cmark_chunk *ch, cmark_parser *parser) {
     line->line = parser->line_number;
     line->column = parser->offset + 1;
     line->ending = parser->math_current_ending;
+    line->virtual_prefix = parser->partially_consumed_tab ? chars_to_tab : 0;
     int prefix = parser->math_inline_prefix;
     line->visual_column = cmark_reference_column(1, ch->data, parser->offset);
     line->prefix_visual_column = cmark_reference_column(1, ch->data, parser->offset - prefix);
@@ -750,6 +751,37 @@ void cmark_manage_extensions_special_characters(cmark_parser *parser, int add) {
   }
 }
 
+/* A definition split may detach a physical line ending from inline parsing.
+ * Retain that event before moving its content rows to another term. */
+static void definition_record_break(cmark_node *node, bool soft, bufsize_t start) {
+  if (!node->math_line_count) return;
+  const cmark_math_line *row = &node->math_lines[node->math_line_count - 1];
+  if (soft) {
+    start = node->content.size;
+    while (start > row->offset && S_is_line_end_char(node->content.ptr[start - 1])) start--;
+    bufsize_t spaces = start;
+    while (spaces > row->offset && node->content.ptr[spaces - 1] == ' ') spaces--;
+    if (start - spaces >= 2 && (spaces == row->offset || node->content.ptr[spaces - 1] != '\t')) {
+      start = spaces;
+      soft = false;
+    } else {
+      bufsize_t slashes = start;
+      while (slashes > row->offset && node->content.ptr[slashes - 1] == '\\') slashes--;
+      if ((start - slashes) % 2) {
+        start--;
+        soft = false;
+        cmark_strbuf_truncate(&node->content, start);
+      }
+    }
+  }
+  node->definition.hardbreak = true;
+  node->definition.softbreak = soft;
+  if (!row->ending || start < row->offset) return;
+  node->definition.break_line = row->line;
+  node->definition.break_column = row->column + start - row->offset;
+  node->definition.break_ending = row->ending;
+}
+
 // Walk through node and all children, recursively, parsing
 // string content into inline content where appropriate.
 static void process_inlines(cmark_parser *parser,
@@ -766,9 +798,15 @@ static void process_inlines(cmark_parser *parser,
       if (contains_inlines(cur)) {
         cmark_parse_inlines(parser, cur, refmap, options);
         if (cur->definition.hardbreak) {
-          cmark_node *linebreak = cmark_node_new_with_mem(CMARK_NODE_LINEBREAK, parser->mem);
+          cmark_node *linebreak = cmark_node_new_with_mem(cur->definition.softbreak ? CMARK_NODE_SOFTBREAK : CMARK_NODE_LINEBREAK, parser->mem);
           linebreak->start_line = linebreak->end_line = cur->end_line;
           linebreak->start_column = linebreak->end_column = cur->end_column;
+          if (options & CMARK_OPT_SOFTBREAK_METADATA)
+            linebreak->softbreak_ending = cur->definition.softbreak ? cur->definition.break_ending : 0;
+          if ((options & CMARK_OPT_WEB_POSITIONS) && cur->definition.break_line) {
+            cmark_web_position_set_start(linebreak, cur->definition.break_line, cur->definition.break_column);
+            cmark_web_position_set_end(linebreak, cur->definition.break_line + 1, 1);
+          }
           cmark_node_append_child(cur, linebreak);
         }
       }
@@ -1835,11 +1873,15 @@ static void open_new_blocks(cmark_parser *parser, cmark_node **container,
       /* Web codeIndented includes its indentation after container prefixes. */
       int web_code_start = parser->partially_consumed_tab ? 0 : parser->offset + 1;
       bool web_flow_boundary = false;
-      if ((parser->options & CMARK_OPT_WEB_CODE_SYNTAX) && !all_matched)
-        for (cmark_node *open = parser->current; open && open != *container; open = open->parent)
+      if ((parser->options & CMARK_OPT_WEB_CODE_SYNTAX) && !all_matched) {
+        cmark_node *open = parser->current;
+        for (; open && open != *container; open = open->parent)
           if (open->type == CMARK_NODE_BLOCK_QUOTE || open->type == CMARK_NODE_ITEM ||
               open->type == CMARK_NODE_FOOTNOTE_DEFINITION || open->type == CMARK_NODE_DEFINITION_DESCRIPTION)
             web_flow_boundary = true;
+        /* A newly opened container already starts an independent flow. */
+        if (!open) web_flow_boundary = false;
+      }
       S_advance_offset(parser, input, CODE_INDENT, true);
       *container = add_child(parser, *container, CMARK_NODE_CODE_BLOCK,
                              parser->offset + 1);
@@ -2102,7 +2144,7 @@ static bool S_open_definition(cmark_parser *parser, cmark_chunk *input,
         cmark_strbuf_put(&term->content, old->content.ptr + lazy_offset, old->content.size - lazy_offset);
         definition_move_tail(parser, old, term, lazy_offset);
         cmark_strbuf_truncate(&old->content, lazy_offset);
-        old->definition.hardbreak = true;
+        definition_record_break(old, true, 0);
         int final_line = old->definition.lazy_line - 1;
         while (parser->current != container) {
           cmark_node *closing = parser->current;
@@ -2145,7 +2187,7 @@ static bool S_open_definition(cmark_parser *parser, cmark_chunk *input,
         cmark_strbuf_put(&term->content, preceding->content.ptr + offset, preceding->content.size - offset);
         definition_move_tail(parser, preceding, term, offset);
         cmark_strbuf_truncate(&preceding->content, offset);
-        preceding->definition.hardbreak = true;
+        definition_record_break(preceding, true, 0);
         if (preceding->flags & CMARK_NODE__OPEN) finalize(parser, preceding);
         preceding->end_line = term->start_line;
         preceding->end_column = 0;
@@ -2199,24 +2241,29 @@ static bool S_open_definition(cmark_parser *parser, cmark_chunk *input,
       item->end_line = line;
       item->end_column = item->start_column + end - start - 1;
       bufsize_t content_end = end;
+      bufsize_t break_start = end;
       bufsize_t after_ending = end;
       if (after_ending < term->content.size && term->content.ptr[after_ending] == '\r') after_ending++;
       if (after_ending < term->content.size && term->content.ptr[after_ending] == '\n') after_ending++;
       if (after_ending < term->content.size) {
         if (end - start >= 2 && term->content.ptr[end - 1] == ' ' && term->content.ptr[end - 2] == ' ') {
           item->definition.hardbreak = true;
+          while (break_start > start && term->content.ptr[break_start - 1] == ' ') break_start--;
+          if (break_start > start && term->content.ptr[break_start - 1] == '\t') item->definition.hardbreak = false;
         } else {
           int slashes = 0;
           while (content_end > start && term->content.ptr[content_end - 1] == '\\') { slashes++; content_end--; }
           content_end = end;
-          if (slashes % 2) { item->definition.hardbreak = true; content_end--; }
+          if (slashes % 2) { item->definition.hardbreak = true; content_end--; break_start = end - 1; }
         }
       }
       cmark_strbuf_put(&item->content, term->content.ptr + start, content_end - start);
       while (term_line_index < term->math_line_count && term->math_lines[term_line_index].offset < start)
         term_line_index++;
-      if (term_line_index < term->math_line_count && term->math_lines[term_line_index].offset == start)
+      if (term_line_index < term->math_line_count && term->math_lines[term_line_index].offset < end)
         definition_copy_line(parser, item, &term->math_lines[term_line_index++], start);
+      if (item->definition.hardbreak)
+        definition_record_break(item, item->definition.softbreak, break_start - start);
       item->end_line = line + 1;
       item->end_column = 0;
       cmark_list_spread_boundary(parser, item);
@@ -2229,6 +2276,9 @@ static bool S_open_definition(cmark_parser *parser, cmark_chunk *input,
     if (!omit_term) cmark_node_free(term);
     parser->current = parent;
   }
+  /* The definition continuation clears lastBlankLine before attempting an
+   * indented prefix, even when that prefix falls back to a new description. */
+  if (parser->indent > 0 && !(previous_description && previous_description->definition.initial_blank)) spread = false;
   int initial_column = parser->column;
   S_advance_offset(parser, input, parser->first_nonspace + 1 - parser->offset, false);
   int after_marker_offset = parser->offset;

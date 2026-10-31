@@ -72,6 +72,7 @@ typedef uint16_t cmark_node_internal_flags;
 typedef struct {
   bufsize_t offset;
   int line, column, ending, visual_column, prefix_visual_column;
+  int virtual_prefix; /* Spaces emitted by the actually consumed partial tab before offset. */
   cmark_chunk prefix;
 } cmark_math_line;
 
@@ -136,6 +137,8 @@ struct cmark_node {
     bool initial_blank;
     bool spread;
     bool hardbreak;
+    bool softbreak;
+    int break_line, break_column, break_ending;
     int lazy_offset;
     int lazy_line;
     int lazy_column;

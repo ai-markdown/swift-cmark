@@ -63,3 +63,11 @@ if(WIN32 AND BUILD_SHARED_LIBS)
   set_tests_properties(web_list_boundaries_test PROPERTIES
     ENVIRONMENT "PATH=$<TARGET_FILE_DIR:libcmark-gfm>;$<TARGET_FILE_DIR:libcmark-gfm-extensions>;$ENV{PATH}")
 endif()
+
+add_executable(web_definition_breaks_test web_definition_breaks.c harness.c)
+target_link_libraries(web_definition_breaks_test PRIVATE libcmark-gfm libcmark-gfm-extensions)
+add_test(NAME web_definition_breaks_test COMMAND web_definition_breaks_test)
+if(WIN32 AND BUILD_SHARED_LIBS)
+  set_tests_properties(web_definition_breaks_test PROPERTIES
+    ENVIRONMENT "PATH=$<TARGET_FILE_DIR:libcmark-gfm>;$<TARGET_FILE_DIR:libcmark-gfm-extensions>;$ENV{PATH}")
+endif()

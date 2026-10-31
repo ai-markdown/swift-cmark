@@ -50,7 +50,7 @@
       "sourceFiles": [
         "packages/engine/package.json"
       ],
-      "description": "1431 actual raw Web inputs: 608 definition inputs, 585 complete math ancestor-wrapper controls, 81 merged/container controls, original latex-915 long corpus, three reported spread regressions, all 46 definition-list-multi scalar prefixes across LF/CRLF/CR and 15 marker/lazy controls. Checks selected structure, list/item/description spread, byte endpoints and term text origins with whole and byte feeds. Preserves mask 0 for one virtual-tab term text. The 18 previously unsupported footnote-prefix blank-EOF endpoints are now checked against their unchanged actual Web coordinates.",
+      "description": "1431 actual raw Web inputs: 608 definition inputs, 585 complete math ancestor-wrapper controls, 81 merged/container controls, original latex-915 long corpus, three reported spread regressions, all 46 definition-list-multi scalar prefixes across LF/CRLF/CR and 15 marker/lazy controls. Checks selected structure, list/item/description spread, byte endpoints and term text origins with whole and byte feeds. All selected endpoints are now strict, including the previously unsupported virtual-tab term text and 18 footnote-prefix blank-EOF endpoints; their actual Web coordinates are unchanged.",
       "license": "MIT; AIMarkdown/ThirdPartyLicenses/ai-markdown/LICENSE-ai-markdown"
     },
     {
@@ -117,9 +117,21 @@
       "sourceFiles": [
         "packages/engine/package.json"
       ],
-      "fixtureSHA256": "b7902da63d7ca378ed7ba69cf74e0c950f68721f7fd8d350e7b04fda640f7697",
-      "actualWebTreesSHA256": "0026c9eb1ab5ae6d24639a9290cb1c151c6637da874e845758507b74e950caaa",
-      "description": "1102 actual raw Web inputs: 963 existing spread footnote cases, the 22 prior shape failures (deduplicated), and 120 container/EOL controls. Whole and byte feeds check selected list/item/quote/footnote/definition/code/paragraph structure, container/code source endpoints, code metadata values and list/item spread; tracking preserves every native range. Paragraph source positions remain owned by the Swift projection. The original 5791-input legacy table-profile census additionally has zero shape, spread-value or missing-spread differences.",
+      "fixtureSHA256": "d0cdaf175a430ce6a23a992d86f07ccc6c61295662c65bb4ce4b7ce107dea4a2",
+      "actualWebTreesSHA256": "25f0e495fa7f90883387c794cbbfcf9603aecb434da8bd38ed09ac71dcd562f0",
+      "description": "1476 actual raw Web inputs: 963 existing spread footnote cases, the 22 prior shape failures (deduplicated), 120 container/EOL controls and all 302 definition-stress inputs and 72 blank/indented description-spread controls. Whole and byte feeds check selected list/item/quote/footnote/definition/code/paragraph structure, container/code source endpoints, code metadata values and list/item/definition-description spread; tracking preserves every native range. Paragraph source positions remain owned by the Swift projection. The original 5791-input legacy table-profile census additionally has zero shape, spread-value or missing-spread differences.",
+      "license": "MIT; AIMarkdown/ThirdPartyLicenses/ai-markdown/LICENSE-ai-markdown"
+    },
+    {
+      "file": "api_test/web_definition_breaks.c; api_test/fixtures/definition_break_cases.inc",
+      "sourceRepository": "https://github.com/ai-markdown/ai-markdown.git",
+      "sourceRevision": "e9ec1799fdc380d99ce0a6313023515895bbd7bf",
+      "sourceFiles": [
+        "packages/engine/package.json"
+      ],
+      "fixtureSHA256": "16e8befb7a3a64acfd1cf850422784bbc53675714221fbc6e6ad9ac21ff6f98a",
+      "actualWebTreesSHA256": "dbcff0b9fbd3a4963d3658ff2e7a295fa5f94be2ecb8a4b41ec7a9fcaa2b2d13",
+      "description": "54 actual raw Web inputs distinguish physical trailing-space/backslash hard breaks from detached soft line endings in definition resolution, with root/quote, LF/CRLF/CR and partial-tab term text. Whole and byte feeds compare exact inline values and both endpoints; detached soft-break events retain their original physical EOL kind.",
       "license": "MIT; AIMarkdown/ThirdPartyLicenses/ai-markdown/LICENSE-ai-markdown"
     }
   ],

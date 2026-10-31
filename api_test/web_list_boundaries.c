@@ -45,6 +45,7 @@ int main(void) {
      INT_EQ(runner,el,e->el,"Web list end line %s",cases[c].id);INT_EQ(runner,ec,e->ec,"Web list end column %s",cases[c].id);
     }
     if(type==CMARK_NODE_LIST||type==CMARK_NODE_ITEM)INT_EQ(runner,cmark_node_get_list_spread(n),e->spread,"Web list spread %s",cases[c].id);
+    if(type==CMARK_NODE_DEFINITION_DESCRIPTION)INT_EQ(runner,cmark_node_get_definition_spread(n),e->spread==2,"Web definition description spread %s",cases[c].id);
     if(type==CMARK_NODE_CODE_BLOCK)STR_EQ(runner,cmark_node_get_code_metadata_value(n),e->value,"Web code value %s",cases[c].id);
    }
    count++;
