@@ -1286,10 +1286,11 @@ static bool parse_block_quote_prefix(cmark_parser *parser, cmark_chunk *input) {
 
 static bool parse_footnote_definition_block_prefix(cmark_parser *parser, cmark_chunk *input,
                                                    cmark_node *container) {
-  /* GFM footnote blankLine is a non-consuming continuation. For an open
-   * math leaf its whitespace remains math data, even below four columns.
-   * Other leaves keep their existing prefix and metadata behavior. */
-  if (parser->blank && parser->current->type == CMARK_NODE_MATH_BLOCK) return true;
+  /* GFM footnote blankLine is a non-consuming continuation, including CR
+   * and whitespace-only lines. Keep the upstream prefix behavior outside
+   * the lossless profile. Math already requires the same physical event. */
+  if (parser->blank && ((parser->options & CMARK_OPT_FOOTNOTES_LOSSLESS) ||
+                        parser->current->type == CMARK_NODE_MATH_BLOCK)) return true;
   if (parser->indent >= 4) {
     if ((parser->options & CMARK_OPT_CODE_METADATA) && parser->blank && parser->code_footnote_blank_offset < 0) {
       parser->code_footnote_blank_offset = parser->offset;
@@ -1757,6 +1758,10 @@ static void open_new_blocks(cmark_parser *parser, cmark_node **container,
                (matched = parse_list_marker(
                     parser->mem, input, parser->first_nonspace,
                     ((*container)->type == CMARK_NODE_PARAGRAPH ||
+                     ((parser->options & CMARK_OPT_WEB_CODE_SYNTAX) &&
+                      parser->current->type == CMARK_NODE_CODE_BLOCK &&
+                      !parser->current->as.code.fenced &&
+                      parser->current->parent == *container) ||
                      ((*container)->type == CMARK_NODE_DEFINITION_DESCRIPTION &&
                       (*container)->start_line == parser->line_number && (*container)->definition.interrupt)), &data))) {
 
@@ -1829,6 +1834,12 @@ static void open_new_blocks(cmark_parser *parser, cmark_node **container,
     } else if (indented && !maybe_lazy && !parser->blank) {
       /* Web codeIndented includes its indentation after container prefixes. */
       int web_code_start = parser->partially_consumed_tab ? 0 : parser->offset + 1;
+      bool web_flow_boundary = false;
+      if ((parser->options & CMARK_OPT_WEB_CODE_SYNTAX) && !all_matched)
+        for (cmark_node *open = parser->current; open && open != *container; open = open->parent)
+          if (open->type == CMARK_NODE_BLOCK_QUOTE || open->type == CMARK_NODE_ITEM ||
+              open->type == CMARK_NODE_FOOTNOTE_DEFINITION || open->type == CMARK_NODE_DEFINITION_DESCRIPTION)
+            web_flow_boundary = true;
       S_advance_offset(parser, input, CODE_INDENT, true);
       *container = add_child(parser, *container, CMARK_NODE_CODE_BLOCK,
                              parser->offset + 1);
@@ -1836,6 +1847,7 @@ static void open_new_blocks(cmark_parser *parser, cmark_node **container,
         cmark_web_position_set_start(*container, parser->line_number, web_code_start);
       (*container)->definition.single_line = parser->definition_lazy_code;
       (*container)->as.code.fenced = false;
+      (*container)->as.code.web_single_line = web_flow_boundary;
       if (parser->options & CMARK_OPT_CODE_METADATA) { cmark_code_metadata_start(*container, 2); (*container)->code_metadata->indented_qualified = true; }
       (*container)->as.code.fence_char = 0;
       (*container)->as.code.fence_length = 0;
@@ -2057,6 +2069,12 @@ static bool S_open_definition(cmark_parser *parser, cmark_chunk *input,
   if (parser->indent >= 4 || peek_at(input, parser->first_nonspace) != ':' ||
       !(S_is_space_or_tab(peek_at(input, parser->first_nonspace + 1)) ||
         S_is_line_end_char(peek_at(input, parser->first_nonspace + 1)))) return false;
+  /* These document containers do not admit definition terms. A colon below
+   * their prefix remains a lazy line of an unmatched nested list paragraph. */
+  cmark_node *definition_scope = *matched;
+  if (definition_scope->type == CMARK_NODE_LIST) definition_scope = definition_scope->parent;
+  if (definition_scope && (definition_scope->type == CMARK_NODE_ITEM ||
+      definition_scope->type == CMARK_NODE_FOOTNOTE_DEFINITION)) return false;
   /* A document definition marker interrupts an unmatched container's lazy
    * flow even when that container cannot supply an external definition term. */
   parser->definition_marker_interrupt = true;
@@ -2331,7 +2349,8 @@ static void S_process_line(cmark_parser *parser, const unsigned char *buffer,
   if (current == parser->current)
   add_text_to_container(parser, container, last_matched_container, &input);
 
-  if (parser->current && parser->current->type == CMARK_NODE_CODE_BLOCK && parser->current->definition.single_line) {
+  if (parser->current && parser->current->type == CMARK_NODE_CODE_BLOCK &&
+      (parser->current->definition.single_line || parser->current->as.code.web_single_line)) {
     parser->current->end_line = parser->line_number + 1;
     parser->current = finalize(parser, parser->current);
   }

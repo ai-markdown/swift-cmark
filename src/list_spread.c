@@ -203,9 +203,10 @@ void cmark_list_spread_leaf_prefix(cmark_parser *parser, cmark_node *leaf) {
   struct cmark_list_spread_ledger *l = ledger(parser);
   if (!l)
     return;
-  /* Web keeps the indentation of a whitespace-only footnote line for the flow;
-   * this parser consumes it, so code there is not comparable. */
-  if (parser->blank && parser->curline.size && parser->curline.ptr[0] != '\n' &&
+  /* The legacy footnote prefix consumes blank indentation; lossless mode
+   * records the non-consuming physical blankLine event instead. */
+  if (!(parser->options & CMARK_OPT_FOOTNOTES_LOSSLESS) &&
+      parser->blank && parser->curline.size && parser->curline.ptr[0] != '\n' &&
       parser->curline.ptr[0] != '\r')
     for (cmark_node *parent = leaf->parent; parent; parent = parent->parent)
       if (parent->type == CMARK_NODE_FOOTNOTE_DEFINITION)

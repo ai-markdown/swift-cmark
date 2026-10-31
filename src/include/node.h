@@ -35,6 +35,7 @@ typedef struct {
   uint8_t fence_offset;
   unsigned char fence_char;
   int8_t fenced;
+  bool web_single_line; /* A new flow after an unmatched container closes this code chunk at EOL. */
 } cmark_code;
 
 typedef struct {

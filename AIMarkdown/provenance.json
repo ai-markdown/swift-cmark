@@ -50,7 +50,7 @@
       "sourceFiles": [
         "packages/engine/package.json"
       ],
-      "description": "1431 actual raw Web inputs: 608 definition inputs, 585 complete math ancestor-wrapper controls, 81 merged/container controls, original latex-915 long corpus, three reported spread regressions, all 46 definition-list-multi scalar prefixes across LF/CRLF/CR and 15 marker/lazy controls. Checks selected structure, list/item/description spread, byte endpoints and term text origins with whole and byte feeds. Preserves mask 0 for one virtual-tab term text and 18 existing unsupported footnote-prefix blank-EOF controls; actual Web coordinates remain frozen.",
+      "description": "1431 actual raw Web inputs: 608 definition inputs, 585 complete math ancestor-wrapper controls, 81 merged/container controls, original latex-915 long corpus, three reported spread regressions, all 46 definition-list-multi scalar prefixes across LF/CRLF/CR and 15 marker/lazy controls. Checks selected structure, list/item/description spread, byte endpoints and term text origins with whole and byte feeds. Preserves mask 0 for one virtual-tab term text. The 18 previously unsupported footnote-prefix blank-EOF endpoints are now checked against their unchanged actual Web coordinates.",
       "license": "MIT; AIMarkdown/ThirdPartyLicenses/ai-markdown/LICENSE-ai-markdown"
     },
     {
@@ -108,6 +108,18 @@
         "packages/engine/package.json"
       ],
       "description": "252 actual raw Web tilde inputs covering unmatched one/two markers, long runs, matched single/double delete, mismatched delimiters, UTF-8 prefixes, physical CR/LF/CRLF, containers and multiline spans. Selected literal and delete positions use actual token events; metadata-on/off native ranges and traversal remain identical.",
+      "license": "MIT; AIMarkdown/ThirdPartyLicenses/ai-markdown/LICENSE-ai-markdown"
+    },
+    {
+      "file": "api_test/web_list_boundaries.c; api_test/fixtures/list_boundary_cases.inc",
+      "sourceRepository": "https://github.com/ai-markdown/ai-markdown.git",
+      "sourceRevision": "e9ec1799fdc380d99ce0a6313023515895bbd7bf",
+      "sourceFiles": [
+        "packages/engine/package.json"
+      ],
+      "fixtureSHA256": "b7902da63d7ca378ed7ba69cf74e0c950f68721f7fd8d350e7b04fda640f7697",
+      "actualWebTreesSHA256": "0026c9eb1ab5ae6d24639a9290cb1c151c6637da874e845758507b74e950caaa",
+      "description": "1102 actual raw Web inputs: 963 existing spread footnote cases, the 22 prior shape failures (deduplicated), and 120 container/EOL controls. Whole and byte feeds check selected list/item/quote/footnote/definition/code/paragraph structure, container/code source endpoints, code metadata values and list/item spread; tracking preserves every native range. Paragraph source positions remain owned by the Swift projection. The original 5791-input legacy table-profile census additionally has zero shape, spread-value or missing-spread differences.",
       "license": "MIT; AIMarkdown/ThirdPartyLicenses/ai-markdown/LICENSE-ai-markdown"
     }
   ],

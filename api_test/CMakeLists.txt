@@ -55,3 +55,11 @@ if(WIN32 AND BUILD_SHARED_LIBS)
   set_tests_properties(web_tilde_positions_test PROPERTIES
     ENVIRONMENT "PATH=$<TARGET_FILE_DIR:libcmark-gfm>;$<TARGET_FILE_DIR:libcmark-gfm-extensions>;$ENV{PATH}")
 endif()
+
+add_executable(web_list_boundaries_test web_list_boundaries.c harness.c)
+target_link_libraries(web_list_boundaries_test PRIVATE libcmark-gfm libcmark-gfm-extensions)
+add_test(NAME web_list_boundaries_test COMMAND web_list_boundaries_test)
+if(WIN32 AND BUILD_SHARED_LIBS)
+  set_tests_properties(web_list_boundaries_test PROPERTIES
+    ENVIRONMENT "PATH=$<TARGET_FILE_DIR:libcmark-gfm>;$<TARGET_FILE_DIR:libcmark-gfm-extensions>;$ENV{PATH}")
+endif()
