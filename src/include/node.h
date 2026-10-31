@@ -148,6 +148,10 @@ struct cmark_node {
   } definition;
   int math_fence_length;
   bool math_closing_fence;
+  /* Last physical quote continuation, before document's EOF exit moves its
+   * line ending outside mathFlow. Zero when no such line was consumed. */
+  int math_quote_line, math_quote_column;
+  bool math_quote_prefix_only;
   cmark_math_line *math_lines;
   size_t math_line_count, math_line_capacity;
 

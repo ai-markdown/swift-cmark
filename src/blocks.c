@@ -256,7 +256,18 @@ static void add_line(cmark_node *node, cmark_chunk *ch, cmark_parser *parser) {
   assert(node->flags & CMARK_NODE__OPEN);
   bufsize_t physical_length = ch->len;
   if (physical_length && ch->data[physical_length - 1] == '\n') physical_length--;
+  if (physical_length && ch->data[physical_length - 1] == '\r') physical_length--;
   if (math_prefix_only_eof(parser, node, physical_length)) return;
+  if (node->type == CMARK_NODE_MATH_BLOCK && parser->math_current_ending != 0) {
+    for (cmark_node *owner = node->parent; owner; owner = owner->parent) {
+      if (owner->type != CMARK_NODE_BLOCK_QUOTE) continue;
+      node->math_quote_line = parser->line_number;
+      node->math_quote_column = physical_length + 1;
+      node->math_quote_prefix_only = !parser->partially_consumed_tab &&
+          parser->offset == physical_length;
+      break;
+    }
+  }
   if ((parser->options & CMARK_OPT_DEFINITION_LISTS) && node->type == CMARK_NODE_PARAGRAPH &&
       node->content.size > 0 && parser->column > 0 && node->parent &&
       (node->parent->type == CMARK_NODE_BLOCK_QUOTE || node->parent->type == CMARK_NODE_DEFINITION_DESCRIPTION)) {
@@ -516,8 +527,14 @@ static cmark_node *finalize(cmark_parser *parser, cmark_node *b) {
 
   if (S_type(b) == CMARK_NODE_MATH_BLOCK && parser->curline.size == 0 &&
       !b->math_closing_fence && parser->math_last_line_ending) {
-    b->end_line = parser->line_number + 1;
-    b->end_column = 0; // exclusive EOF is column 1 of the following line
+    if (b->math_quote_line == parser->line_number) {
+      /* document exits the quote before its final physical line ending. */
+      b->end_line = b->math_quote_line;
+      b->end_column = b->math_quote_column - 1;
+    } else {
+      b->end_line = parser->line_number + 1;
+      b->end_column = 0; // exclusive EOF is column 1 of the following line
+    }
   }
 
   if (S_type(b) == CMARK_NODE_MATH_BLOCK && !b->math_closing_fence) {
@@ -560,7 +577,8 @@ static cmark_node *finalize(cmark_parser *parser, cmark_node *b) {
     // and remove exactly one boundary EOL, not all trailing blank lines or
     // whitespace. Source coordinates above still describe the original bytes.
     bool container_prefix = false;
-    if (!b->math_closing_fence && parser->curline.size > 0) {
+    if (!b->math_closing_fence && (parser->curline.size > 0 ||
+        (b->math_quote_line == parser->line_number && b->math_quote_prefix_only))) {
       for (cmark_node *owner = b->parent; owner; owner = owner->parent) {
         cmark_node *next = owner->next;
         if (next && next->start_line == parser->line_number &&

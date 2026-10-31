@@ -40,7 +40,7 @@
       "sourceFiles": [
         "packages/engine/package.json"
       ],
-      "description": "369 raw math EOF/container inputs from the pinned default remark parser; 366 exact values and three explicitly retained real-EOL quote differences. Original 5639 math-boundary frames additionally compare count and value.",
+      "description": "585 raw math EOF/container inputs from the pinned default remark parser, including the original 369 inputs and 216 real-EOL quote/fence/container controls. Whole and byte feeds compare exact values; physical quote EOF endpoints are checked separately. Original 5639 math-boundary frames additionally compare count and value.",
       "license": "MIT; AIMarkdown/ThirdPartyLicenses/ai-markdown/LICENSE-ai-markdown"
     }
   ],
