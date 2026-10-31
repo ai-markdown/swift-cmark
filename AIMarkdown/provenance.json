@@ -50,7 +50,7 @@
       "sourceFiles": [
         "packages/engine/package.json"
       ],
-      "description": "428 existing DefinitionList/DefinitionListStress inputs and 180 raw Web controls for nested definitions, list and item spread, quote relocation, term source rows, Unicode, tabs, EOF and physical line endings. One virtual-tab term text position remains explicitly unknown; its actual Web coordinates are retained.",
+      "description": "1275 actual raw Web inputs: 608 definition inputs, 585 complete math ancestor-wrapper controls, 81 merged/container controls and the original latex-915 long corpus. Checks selected node structure, list/item/description spread, byte source endpoints and term text origins with whole and byte feeds. Preserves mask 0 for one virtual-tab term text and 18 existing unsupported footnote-prefix blank-EOF controls; their actual Web points remain frozen.",
       "license": "MIT; AIMarkdown/ThirdPartyLicenses/ai-markdown/LICENSE-ai-markdown"
     },
     {

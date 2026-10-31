@@ -490,7 +490,7 @@ static void web_row_positions(cmark_node *row_node, const table_row *row,
  * The retained paragraph has a trimmed subject but includes its original
  * trailing spaces in the block endpoint, just like micromark's paragraph. */
 static void web_prefix_paragraph(cmark_node *paragraph, cmark_node *original,
-                                  const unsigned char *string, int length) {
+                                  const unsigned char *string, int length, bool positions) {
   int first = 0, last = length;
   while (first < last && cmark_isspace(string[first])) first++;
   while (last > first && cmark_isspace(string[last - 1])) last--;
@@ -525,8 +525,10 @@ static void web_prefix_paragraph(cmark_node *paragraph, cmark_node *original,
     paragraph->start_column = start->column;
     paragraph->end_line = last_physical->line;
     paragraph->end_column = last_physical->column + physical_end - last_physical->offset - 1;
-    cmark_web_position_set_start(paragraph, paragraph->start_line, paragraph->start_column);
-    cmark_web_position_set_end(paragraph, paragraph->end_line, paragraph->end_column + 1);
+    if (positions) {
+      cmark_web_position_set_start(paragraph, paragraph->start_line, paragraph->start_column);
+      cmark_web_position_set_end(paragraph, paragraph->end_line, paragraph->end_column + 1);
+    }
   }
 }
 
@@ -545,8 +547,9 @@ static cmark_node *try_inserting_table_header_paragraph(cmark_parser *parser,
   cmark_strbuf_free(paragraph_content);
   parser->mem->free(paragraph_content);
 
-  if (parser->options & CMARK_OPT_WEB_POSITIONS)
-    web_prefix_paragraph(paragraph, parent_container, parent_string, paragraph_offset);
+  if (parser->options & (CMARK_OPT_WEB_TABLES | CMARK_OPT_WEB_POSITIONS))
+    web_prefix_paragraph(paragraph, parent_container, parent_string, paragraph_offset,
+                         (parser->options & CMARK_OPT_WEB_POSITIONS) != 0);
   if (!cmark_node_insert_before(parent_container, paragraph)) {
     cmark_node_free(paragraph);
     return NULL;

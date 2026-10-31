@@ -62,7 +62,8 @@ enum {
   LEAF_ABSORBING = 1, /* fenced code, math, HTML kinds 1-5: blank lines stay inside */
   LEAF_INDENTED = 2,  /* indented code: trailing blank lines are flow blank lines */
   LEAF_BLANK = 4,     /* the consumed line was blank after container prefixes */
-  LEAF_CLOSED = 8     /* the block's closing condition matched on this line */
+  LEAF_CLOSED = 8,    /* the block's closing condition matched on this line */
+  LEAF_QUOTED_MATH = 16 /* document exits a quoted EOF math flow before its final EOL */
 };
 
 enum {
@@ -78,7 +79,8 @@ enum {
   E_LINE_ENDING,
   E_LINE_ENDING_BLANK,
   E_CONTENT,
-  E_DEFINITION_EXIT /* Opaque document-container exit: line endings cannot cross it. */
+  E_DEFINITION_EXIT, /* Opaque document-container exit: line endings cannot cross it. */
+  E_DEFINITION_LIST_EXIT
 };
 
 typedef struct {
@@ -268,6 +270,8 @@ void cmark_list_spread_close(cmark_parser *parser, cmark_node *container) {
     type = E_FOOTNOTE_EXIT;
     break;
   case CMARK_NODE_DEFINITION_LIST:
+    type = E_DEFINITION_LIST_EXIT;
+    break;
   case CMARK_NODE_DEFINITION_DESCRIPTION:
     type = E_DEFINITION_EXIT;
     break;
@@ -303,6 +307,12 @@ void cmark_list_spread_leaf(cmark_parser *parser, cmark_node *leaf, bool closed)
       (leaf->type == CMARK_NODE_HTML_BLOCK && leaf->as.html_block_type >= 1 &&
        leaf->as.html_block_type <= 5))
     flags |= LEAF_ABSORBING;
+  if (leaf->type == CMARK_NODE_MATH_BLOCK)
+    for (cmark_node *parent = leaf->parent; parent; parent = parent->parent)
+      if (parent->type == CMARK_NODE_BLOCK_QUOTE) {
+        flags |= LEAF_QUOTED_MATH;
+        break;
+      }
   if (leaf->type == CMARK_NODE_CODE_BLOCK && !leaf->as.code.fenced)
     flags |= LEAF_INDENTED;
   if (parser->blank)
@@ -374,7 +384,7 @@ typedef struct {
    * micromark's codeIndented reaches even when the line is blank. */
   int last_indented_line;
   /* Recorded while parsing: finalize reuses the HTML kind's storage. */
-  bool absorbing;
+  bool absorbing, quoted_math;
 } ls_leaf_info;
 
 /* Emit close records in [begin, end) innermost first, keeping record order
@@ -655,7 +665,7 @@ void cmark_list_spread_finish(cmark_parser *parser, cmark_node *root) {
   ls_point *boundaries = (ls_point *)mem->calloc((size_t)ids, sizeof(ls_point));
   ls_leaf_info *leaves = (ls_leaf_info *)mem->calloc((size_t)ids, sizeof(ls_leaf_info));
   for (int i = 0; i < ids; i++)
-    leaves[i] = (ls_leaf_info){-1, -1, -1, -1, -1, false};
+    leaves[i] = (ls_leaf_info){-1, -1, -1, -1, -1, false, false};
   size_t line_count = 0;
   for (size_t i = 0; i < count; i++)
     if (records[i].kind == R_LINE)
@@ -696,6 +706,8 @@ void cmark_list_spread_finish(cmark_parser *parser, cmark_node *root) {
         info->closed_line = line;
       if (r->a & LEAF_ABSORBING)
         info->absorbing = true;
+      if (r->a & LEAF_QUOTED_MATH)
+        info->quoted_math = true;
     }
   }
   /* codeIndented's furtherStart crosses blank lines and continues on any line
@@ -812,7 +824,8 @@ void cmark_list_spread_finish(cmark_parser *parser, cmark_node *root) {
        * the end of input it swallows the line ending. */
       flow_ending = info->closed_line == line ||
                     (info->closed_line < 0 && info->last_line == line &&
-                     (size_t)line + 1 < line_count && !lines[line + 1].opens_container);
+                     (((size_t)line + 1 < line_count && !lines[line + 1].opens_container) ||
+                      ((size_t)line + 1 == line_count && info->quoted_math)));
     else
       flow_ending = info->last_content_line == line;
     if (flow_ending)
@@ -824,11 +837,13 @@ void cmark_list_spread_finish(cmark_parser *parser, cmark_node *root) {
   int *spread = NULL;
   ls_point *ends = NULL;
   ls_ids *list_items = NULL;
+  uint8_t *definition_exits = NULL;
   if (valid) {
     move_container_exits(&events);
     spread = (int *)mem->calloc((size_t)ids, sizeof(int));
     ends = (ls_point *)mem->calloc((size_t)ids, sizeof(ls_point));
     list_items = (ls_ids *)mem->calloc((size_t)ids, sizeof(ls_ids));
+    definition_exits = (uint8_t *)mem->calloc((size_t)ids, sizeof(uint8_t));
     /* Lists are prepared in exit order, inner lists first, as in `compile`. */
     size_t *stack = (size_t *)mem->calloc(events.count + 1, sizeof(size_t));
     int *types = (int *)mem->calloc(events.count + 1, sizeof(int));
@@ -837,6 +852,16 @@ void cmark_list_spread_finish(cmark_parser *parser, cmark_node *root) {
       int type = events.items[index].type;
       if (type == E_DEFINITION_EXIT) {
         ends[events.items[index].id] = events.items[index].point;
+      } else if (type == E_DEFINITION_LIST_EXIT) {
+        int id = events.items[index].id;
+        /* resolveAllDefinitionTerm merges adjacent tokens by updating the
+         * first token once, then updates detached later tokens. With three or
+         * more merged segments its published end stays at the second exit,
+         * even when later children extend beyond it. Preserve that Web fact. */
+        if (definition_exits[id] < 2) {
+          ends[id] = events.items[index].point;
+          definition_exits[id]++;
+        }
       } else if (type == E_LIST_ENTER || type == E_QUOTE_ENTER || type == E_FOOTNOTE_ENTER) {
         types[depth] = type;
         stack[depth++] = index;
@@ -937,6 +962,7 @@ void cmark_list_spread_finish(cmark_parser *parser, cmark_node *root) {
   }
   mem->free(spread);
   mem->free(ends);
+  mem->free(definition_exits);
   mem->free(events.items);
   mem->free(lines);
   mem->free(leaves);

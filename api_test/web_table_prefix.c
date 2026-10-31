@@ -40,7 +40,29 @@ int main(void) {
       for(int k=0;k<4;k++)INT_EQ(runner,point[k],expected->point[k],"%s node %zu coordinate %d",entry->id,at,k);
     }
     INT_EQ(runner,(int)at,(int)entry->count,"%s final count",entry->id);
-    cmark_iter_free(it);cmark_node_free(document);cmark_parser_free(parser);
+    cmark_iter_free(it);
+    /* Position tracking must not change raw source ranges or source catalogs. */
+    cmark_parser *plain_parser=cmark_parser_new(options & ~CMARK_OPT_WEB_POSITIONS);
+    for(size_t k=0;k<sizeof(extensions)/sizeof(*extensions);k++)cmark_parser_attach_syntax_extension(plain_parser,cmark_find_syntax_extension(extensions[k]));
+    if(chunked)for(size_t b=0;b<size;b++)cmark_parser_feed(plain_parser,entry->input+b,1);
+    else cmark_parser_feed(plain_parser,entry->input,size);
+    cmark_node *plain=cmark_parser_finish(plain_parser);
+    cmark_iter *left=cmark_iter_new(document), *right=cmark_iter_new(plain);
+    cmark_event_type le, re;
+    do {
+      le=cmark_iter_next(left); re=cmark_iter_next(right);
+      INT_EQ(runner,le,re,"%s tracking traversal",entry->id);
+      if(le!=re || le==CMARK_EVENT_DONE)break;
+      if(le!=CMARK_EVENT_ENTER)continue;
+      cmark_node *a=cmark_iter_get_node(left), *b=cmark_iter_get_node(right);
+      STR_EQ(runner,cmark_node_get_type_string(a),cmark_node_get_type_string(b),"%s tracking kind",entry->id);
+      INT_EQ(runner,cmark_node_get_start_line(a),cmark_node_get_start_line(b),"%s tracking start line",entry->id);
+      INT_EQ(runner,cmark_node_get_start_column(a),cmark_node_get_start_column(b),"%s tracking start column",entry->id);
+      INT_EQ(runner,cmark_node_get_end_line(a),cmark_node_get_end_line(b),"%s tracking end line",entry->id);
+      INT_EQ(runner,cmark_node_get_end_column(a),cmark_node_get_end_column(b),"%s tracking end column",entry->id);
+    } while(le!=CMARK_EVENT_DONE);
+    cmark_iter_free(left);cmark_iter_free(right);cmark_node_free(plain);cmark_parser_free(plain_parser);
+    cmark_node_free(document);cmark_parser_free(parser);
   }
   test_print_summary(runner);int failed=!test_ok(runner);free(runner);return failed;
 }

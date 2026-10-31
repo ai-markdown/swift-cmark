@@ -2139,9 +2139,12 @@ static bool S_open_definition(cmark_parser *parser, cmark_chunk *input,
     if (term->prev && term->prev->type == CMARK_NODE_DEFINITION_LIST) {
       list = term->prev;
       if (list->last_child) {
+        bool relocated = list->last_child->end_line > term->start_line;
         list->last_child->end_line = term->start_line;
         list->last_child->end_column = (term->definition.term_start_column > 0 ? term->definition.term_start_column : term->start_column) - 1;
-        cmark_list_spread_boundary(parser, list->last_child);
+        /* A closed segment already has its document exit before continued
+         * prefixes. Only a term extracted from an open flow relocates it. */
+        if (relocated) cmark_list_spread_boundary(parser, list->last_child);
       }
       list->flags |= CMARK_NODE__OPEN;
     } else {
