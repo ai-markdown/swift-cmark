@@ -117,9 +117,9 @@
       "sourceFiles": [
         "packages/engine/package.json"
       ],
-      "fixtureSHA256": "d0cdaf175a430ce6a23a992d86f07ccc6c61295662c65bb4ce4b7ce107dea4a2",
-      "actualWebTreesSHA256": "25f0e495fa7f90883387c794cbbfcf9603aecb434da8bd38ed09ac71dcd562f0",
-      "description": "1476 actual raw Web inputs: 963 existing spread footnote cases, the 22 prior shape failures (deduplicated), 120 container/EOL controls and all 302 definition-stress inputs and 72 blank/indented description-spread controls. Whole and byte feeds check selected list/item/quote/footnote/definition/code/paragraph structure, container/code source endpoints, code metadata values and list/item/definition-description spread; tracking preserves every native range. Paragraph source positions remain owned by the Swift projection. The original 5791-input legacy table-profile census additionally has zero shape, spread-value or missing-spread differences.",
+      "fixtureSHA256": "0f42d92c7f5fd8ebb0507e9d6423db13e07af4f4a1951fc9807c67ef28b6d1cc",
+      "actualWebTreesSHA256": "15cd79bed25dc058f2993193373b293bb9994e456d1e806af4948fe1b704b934",
+      "description": "1630 actual raw Web inputs: 963 existing spread footnote cases, the 22 prior shape failures (deduplicated), 120 container/EOL controls and all 302 definition-stress inputs and 72 blank/indented description-spread controls, the 126 definition-list inputs, original latex-915 long corpus and 27 thematic-break/EOL/container controls. Whole and byte feeds check selected list/item/quote/footnote/definition/code/paragraph structure, container/code/ordinary-paragraph/thematic-break source endpoints, code metadata values and list/item/definition-description spread; tracking preserves every native range. Task callback paragraph positions remain owned by their separate callback evidence. Existing table-prefix paragraph events are preserved. The original 5791-input legacy table-profile census additionally has zero shape, spread-value or missing-spread differences.",
       "license": "MIT; AIMarkdown/ThirdPartyLicenses/ai-markdown/LICENSE-ai-markdown"
     },
     {

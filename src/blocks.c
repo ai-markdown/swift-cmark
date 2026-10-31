@@ -782,6 +782,28 @@ static void definition_record_break(cmark_node *node, bool soft, bufsize_t start
   node->definition.break_ending = row->ending;
 }
 
+static void web_paragraph_position(cmark_node *node) {
+  /* Table conversion already captured the complete original paragraph event.
+   * Task callbacks have their own slice-one-character range rules. */
+  if ((node->web_position_flags & 3) == 3 ||
+      (node->parent && node->parent->task_extension &&
+       node->parent->extension == node->parent->task_extension)) return;
+  if (!node->math_line_count) return;
+  const cmark_math_line *first = &node->math_lines[0];
+  const cmark_math_line *last = &node->math_lines[node->math_line_count - 1];
+  cmark_web_position_set_start(node, first->line, first->column);
+  if (node->definition.hardbreak && node->definition.break_line) {
+    /* Definition resolution detached the actual final line ending together
+     * with its flow exit, so this paragraph still includes that event. */
+    cmark_web_position_set_end(node, node->definition.break_line + 1, 1);
+  } else {
+    bufsize_t end = node->content.size;
+    while (end > last->offset && S_is_line_end_char(node->content.ptr[end - 1])) end--;
+    if (end >= last->offset)
+      cmark_web_position_set_end(node, last->line, last->column + end - last->offset);
+  }
+}
+
 // Walk through node and all children, recursively, parsing
 // string content into inline content where appropriate.
 static void process_inlines(cmark_parser *parser,
@@ -797,6 +819,8 @@ static void process_inlines(cmark_parser *parser,
     if (ev_type == CMARK_EVENT_ENTER) {
       if (contains_inlines(cur)) {
         cmark_parse_inlines(parser, cur, refmap, options);
+        if ((options & CMARK_OPT_WEB_POSITIONS) && cur->type == CMARK_NODE_PARAGRAPH)
+          web_paragraph_position(cur);
         if (cur->definition.hardbreak) {
           cmark_node *linebreak = cmark_node_new_with_mem(cur->definition.softbreak ? CMARK_NODE_SOFTBREAK : CMARK_NODE_LINEBREAK, parser->mem);
           linebreak->start_line = linebreak->end_line = cur->end_line;
@@ -1768,6 +1792,10 @@ static void open_new_blocks(cmark_parser *parser, cmark_node **container,
       // it's only now that we know the line is not part of a setext heading:
       *container = add_child(parser, *container, CMARK_NODE_THEMATIC_BREAK,
                              parser->first_nonspace + 1);
+      if (parser->options & CMARK_OPT_WEB_POSITIONS) {
+        cmark_web_position_set_start(*container, parser->line_number, parser->first_nonspace + 1);
+        S_web_heading_end(parser, *container, input);
+      }
       cmark_list_spread_leaf(parser, *container, false);
       S_advance_offset(parser, input, input->len - 1 - parser->offset, false);
     } else if (!indented &&
