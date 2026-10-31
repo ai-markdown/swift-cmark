@@ -8,14 +8,24 @@
 #include "cmark-gfm-core-extensions.h"
 #include "harness.h"
 struct list_boundary_event { cmark_node_type type; int spread,sl,sc,el,ec; const char *value; };
+#ifndef BLOCK_BOUNDARY_FIXTURE
+#define BLOCK_BOUNDARY_FIXTURE "fixtures/list_boundary_cases.inc"
+#endif
 static const struct { const char *id,*input; const struct list_boundary_event *events; size_t count; } cases[]={
-#include "fixtures/list_boundary_cases.inc"
+#include BLOCK_BOUNDARY_FIXTURE
 };
 static bool selected(cmark_node_type type) {
- switch(type){case CMARK_NODE_THEMATIC_BREAK:case CMARK_NODE_LIST:case CMARK_NODE_ITEM:case CMARK_NODE_BLOCK_QUOTE:case CMARK_NODE_FOOTNOTE_DEFINITION:case CMARK_NODE_DEFINITION_LIST:case CMARK_NODE_DEFINITION_TERM:case CMARK_NODE_DEFINITION_DESCRIPTION:case CMARK_NODE_CODE_BLOCK:case CMARK_NODE_PARAGRAPH:return true;default:return false;}
+ switch(type){
+#ifdef WEB_HTML_BLOCK_BOUNDARIES
+ case CMARK_NODE_HTML_BLOCK:
+#endif
+ case CMARK_NODE_THEMATIC_BREAK:case CMARK_NODE_LIST:case CMARK_NODE_ITEM:case CMARK_NODE_BLOCK_QUOTE:case CMARK_NODE_FOOTNOTE_DEFINITION:case CMARK_NODE_DEFINITION_LIST:case CMARK_NODE_DEFINITION_TERM:case CMARK_NODE_DEFINITION_DESCRIPTION:case CMARK_NODE_CODE_BLOCK:case CMARK_NODE_PARAGRAPH:return true;default:return false;}
 }
 static cmark_node *parse(const char *source,bool positions,bool bytes) {
  int flags=CMARK_OPT_WEB_CODE_SYNTAX|CMARK_OPT_DEFINITION_LISTS|CMARK_OPT_FOOTNOTES|CMARK_OPT_FOOTNOTES_LOSSLESS|CMARK_OPT_CODE_METADATA|CMARK_OPT_MATH|CMARK_OPT_LIST_SPREAD_METADATA|CMARK_OPT_WEB_TABLES|CMARK_OPT_WEB_EMPHASIS|CMARK_OPT_REFERENCE_USAGES|CMARK_OPT_WEB_CHARACTER_REFERENCES|(positions?CMARK_OPT_WEB_POSITIONS:0);
+#ifdef WEB_HTML_BLOCK_BOUNDARIES
+ flags |= CMARK_OPT_WEB_HTML_BLOCKS;
+#endif
  cmark_parser *p=cmark_parser_new(flags);const char *extensions[]={"table","strikethrough","tasklist","web_autolink","highlight"};
  for(size_t i=0;i<sizeof(extensions)/sizeof(extensions[0]);i++)cmark_parser_attach_syntax_extension(p,cmark_find_syntax_extension(extensions[i]));
  size_t size=strlen(source);if(bytes){for(size_t i=0;i<size;i++)cmark_parser_feed(p,source+i,1);}else cmark_parser_feed(p,source,size);

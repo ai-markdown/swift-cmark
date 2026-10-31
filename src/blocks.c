@@ -1356,7 +1356,8 @@ static bool parse_footnote_definition_block_prefix(cmark_parser *parser, cmark_c
   /* GFM footnote blankLine is a non-consuming continuation, including CR
    * and whitespace-only lines. Keep the upstream prefix behavior outside
    * the lossless profile. Math already requires the same physical event. */
-  if (parser->blank && ((parser->options & CMARK_OPT_FOOTNOTES_LOSSLESS) ||
+  if (parser->blank && (((parser->options & CMARK_OPT_FOOTNOTES_LOSSLESS) &&
+                         (parser->options & CMARK_OPT_WEB_CODE_SYNTAX)) ||
                         parser->current->type == CMARK_NODE_MATH_BLOCK)) return true;
   if (parser->indent >= 4) {
     if ((parser->options & CMARK_OPT_CODE_METADATA) && parser->blank && parser->code_footnote_blank_offset < 0) {
@@ -1663,7 +1664,8 @@ static void S_web_heading_end(cmark_parser *parser, cmark_node *heading, cmark_c
 }
 
 static void open_new_blocks(cmark_parser *parser, cmark_node **container,
-                            cmark_chunk *input, bool all_matched) {
+                            cmark_chunk *input, bool all_matched,
+                            cmark_node **matched_container) {
   bool indented;
   cmark_list *data = NULL;
   bool maybe_lazy = S_type(parser->current) == CMARK_NODE_PARAGRAPH;
@@ -1672,6 +1674,9 @@ static void open_new_blocks(cmark_parser *parser, cmark_node **container,
   cmark_node *initial_parent = parser->current->parent;
   bool web_code_interrupt = (parser->options & CMARK_OPT_WEB_CODE_SYNTAX) &&
       parser->current->type == CMARK_NODE_CODE_BLOCK && !parser->current->as.code.fenced;
+  bool web_html_interrupt = (parser->options & CMARK_OPT_WEB_HTML_BLOCKS) &&
+      ((maybe_lazy && all_matched) ||
+       (parser->current->type == CMARK_NODE_CODE_BLOCK && !parser->current->as.code.fenced && initial_parent == initial_container));
   bool web_flow_boundary = false;
   if ((parser->options & CMARK_OPT_WEB_CODE_SYNTAX) && !all_matched) {
     cmark_node *open = parser->current;
@@ -1775,10 +1780,22 @@ static void open_new_blocks(cmark_parser *parser, cmark_node **container,
 
     } else if (!indented && ((matched = scan_html_block_start(
                                   input, parser->first_nonspace)) ||
-                             (cont_type != CMARK_NODE_PARAGRAPH &&
+                             ((parser->options & CMARK_OPT_WEB_HTML_BLOCKS) &&
+                              peek_at(input, parser->first_nonspace) == '<' &&
+                              peek_at(input, parser->first_nonspace + 1) == '!' &&
+                              peek_at(input, parser->first_nonspace + 2) >= 'a' &&
+                              peek_at(input, parser->first_nonspace + 2) <= 'z' && (matched = 4)) ||
+                             (cont_type != CMARK_NODE_PARAGRAPH && !web_html_interrupt &&
                               (matched = scan_html_block_start_7(
                                    input, parser->first_nonspace))))) {
       int web_html_start = parser->partially_consumed_tab ? 0 : parser->offset + 1;
+      if ((parser->options & CMARK_OPT_WEB_HTML_BLOCKS) && matched == 7 && maybe_lazy &&
+          !all_matched && *container == initial_container && initial_parent && initial_parent != initial_container) {
+        /* A non-concrete HTML flow can start on a lazy line of the old
+         * document container. Its next prefix, not this line, exits it. */
+        *container = initial_parent;
+        *matched_container = initial_parent;
+      }
       *container = add_child(parser, *container, CMARK_NODE_HTML_BLOCK,
                              parser->first_nonspace + 1);
       (*container)->as.html_block_type = matched;
@@ -2430,7 +2447,7 @@ static void S_process_line(cmark_parser *parser, const unsigned char *buffer,
 
   // Only open new blocks if we're not limited to inline
   if ((parser->options & CMARK_OPT_INLINE_ONLY) == 0)
-    open_new_blocks(parser, &container, &input, all_matched);
+    open_new_blocks(parser, &container, &input, all_matched, &last_matched_container);
 
   /* Web exits containers after this line's prefixes when input ends there. */
   cmark_list_spread_prefix_only(parser, input.len - parser->offset <= 1);

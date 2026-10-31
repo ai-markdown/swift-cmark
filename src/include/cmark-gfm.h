@@ -743,6 +743,9 @@ char *cmark_render_latex_with_mem(cmark_node *root, int options, int width, cmar
  */
 #define CMARK_OPT_DEFAULT 0
 
+/** Match Web HTML declaration starts and lazy-container HTML block flow. */
+#define CMARK_OPT_WEB_HTML_BLOCKS (1 << 0)
+
 /**
  * ### Options affecting rendering
  */

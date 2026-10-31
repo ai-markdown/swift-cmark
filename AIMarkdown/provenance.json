@@ -133,6 +133,18 @@
       "actualWebTreesSHA256": "dbcff0b9fbd3a4963d3658ff2e7a295fa5f94be2ecb8a4b41ec7a9fcaa2b2d13",
       "description": "54 actual raw Web inputs distinguish physical trailing-space/backslash hard breaks from detached soft line endings in definition resolution, with root/quote, LF/CRLF/CR and partial-tab term text. Whole and byte feeds compare exact inline values and both endpoints; detached soft-break events retain their original physical EOL kind.",
       "license": "MIT; AIMarkdown/ThirdPartyLicenses/ai-markdown/LICENSE-ai-markdown"
+    },
+    {
+      "file": "api_test/web_html_blocks.c; api_test/fixtures/html_block_cases.inc",
+      "sourceRepository": "https://github.com/ai-markdown/ai-markdown.git",
+      "sourceRevision": "e9ec1799fdc380d99ce0a6313023515895bbd7bf",
+      "sourceFiles": [
+        "packages/engine/package.json"
+      ],
+      "fixtureSHA256": "1f42795e47e9227e1631915de5fd2946449bd0b3c70932525cca1b7c47ef3ad6",
+      "actualWebTreesSHA256": "5e90b8e6f444297d0584cec24bc44b4ad5fb819d09929d375fa93ce26ce09c85",
+      "description": "627 actual raw Web inputs: all 39 UTF-16 edit frames from IncrementalBoundaryOracle fuzz-benign-6 and fuzz-hazard-5, plus 588 HTML declaration/tag, container, continuation and LF/CRLF/CR controls. Whole/byte feeds strictly compare selected complete block structure, source endpoints and list/item/definition spread, with tracked/untracked native range parity. Inline HTML values remain separately owned by their existing physical-value compiler.",
+      "license": "MIT; AIMarkdown/ThirdPartyLicenses/ai-markdown/LICENSE-ai-markdown"
     }
   ],
   "changes": [

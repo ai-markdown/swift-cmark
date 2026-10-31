@@ -205,7 +205,8 @@ void cmark_list_spread_leaf_prefix(cmark_parser *parser, cmark_node *leaf) {
     return;
   /* The legacy footnote prefix consumes blank indentation; lossless mode
    * records the non-consuming physical blankLine event instead. */
-  if (!(parser->options & CMARK_OPT_FOOTNOTES_LOSSLESS) &&
+  if (!((parser->options & CMARK_OPT_FOOTNOTES_LOSSLESS) &&
+        (parser->options & CMARK_OPT_WEB_CODE_SYNTAX)) &&
       parser->blank && parser->curline.size && parser->curline.ptr[0] != '\n' &&
       parser->curline.ptr[0] != '\r')
     for (cmark_node *parent = leaf->parent; parent; parent = parent->parent)

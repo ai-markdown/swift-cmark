@@ -1666,7 +1666,7 @@ static void math_container_eof(test_batch_runner *runner) {
   int flags = CMARK_OPT_MATH | CMARK_OPT_WEB_POSITIONS | CMARK_OPT_FOOTNOTES |
       CMARK_OPT_FOOTNOTES_LOSSLESS | CMARK_OPT_DEFINITION_LISTS |
       CMARK_OPT_REFERENCE_USAGES | CMARK_OPT_WEB_CHARACTER_REFERENCES |
-      CMARK_OPT_CODE_METADATA | CMARK_OPT_LIST_SPREAD_METADATA;
+      CMARK_OPT_CODE_METADATA | CMARK_OPT_LIST_SPREAD_METADATA | CMARK_OPT_WEB_CODE_SYNTAX;
   for (size_t c = 0; c < sizeof(cases) / sizeof(cases[0]); c++) {
     for (int chunked = 0; chunked <= 1; chunked++) {
       cmark_parser *parser = cmark_parser_new(flags);
@@ -1759,7 +1759,7 @@ static void definition_container_ledger(test_batch_runner *runner) {
       CMARK_OPT_FOOTNOTES_LOSSLESS | CMARK_OPT_REFERENCE_USAGES |
       CMARK_OPT_WEB_CHARACTER_REFERENCES | CMARK_OPT_WEB_TABLES |
       CMARK_OPT_MATH | CMARK_OPT_CODE_METADATA | CMARK_OPT_SOFTBREAK_METADATA |
-      CMARK_OPT_WEB_EMPHASIS;
+      CMARK_OPT_WEB_EMPHASIS | CMARK_OPT_WEB_CODE_SYNTAX;
   cmark_gfm_core_extensions_ensure_registered();
   for (size_t c = 0; c < sizeof(definition_ledger_cases) / sizeof(definition_ledger_cases[0]); c++) {
     for (int chunked = 0; chunked <= 1; chunked++) {
