@@ -154,7 +154,9 @@ static uint8_t get_cell_alignment(cmark_node *node) {
     return 0;
   const uint8_t *alignments = get_table_alignments(node->parent->parent);
   int i = data->cell_index;
-  return alignments[i];
+  return alignments && i >= 0 && i < get_n_table_columns(node->parent->parent)
+             ? alignments[i]
+             : 0;
 }
 
 static int set_cell_index(cmark_node *node, int i) {
@@ -260,9 +262,24 @@ static node_cell* append_row_cell(cmark_mem *mem, table_row *row) {
   return &row->cells[n_columns-1];
 }
 
+/* micromark's table escape state consumes only backslash/backslash and
+ * backslash/pipe pairs. This makes an even backslash run end before a divider. */
+static bufsize_t scan_web_table_cell(const unsigned char *string, int len,
+                                    bufsize_t offset) {
+  bufsize_t start = offset;
+  while (offset < len && string[offset] != '|' && string[offset] != '\r' &&
+         string[offset] != '\n') {
+    if (string[offset] == '\\' && offset + 1 < len &&
+        (string[offset + 1] == '\\' || string[offset + 1] == '|'))
+      offset++;
+    offset++;
+  }
+  return offset - start;
+}
+
 static table_row *row_from_string(cmark_syntax_extension *self,
                                   cmark_parser *parser, unsigned char *string,
-                                  int len) {
+                                  int len, bool body_row) {
   // Parses a single table row. It has the following form:
   // `delim? table_cell (delim table_cell)* delim? newline`
   // Note that cells are allowed to be empty.
@@ -279,6 +296,7 @@ static table_row *row_from_string(cmark_syntax_extension *self,
   int expect_more_cells = 1;
   int row_end_offset = 0;
   int int_overflow_abort = 0;
+  bool web_tables = (parser->options & CMARK_OPT_WEB_TABLES) != 0;
 
   row = (table_row *)parser->mem->calloc(1, sizeof(table_row));
   row->n_columns = 0;
@@ -290,15 +308,19 @@ static table_row *row_from_string(cmark_syntax_extension *self,
   // Parse the cells of the row. Stop if we reach the end of the input, or if we
   // cannot detect any more cells.
   while (offset < len && expect_more_cells) {
-    cell_matched = scan_table_cell(string, len, offset);
+    cell_matched = web_tables ? scan_web_table_cell(string, len, offset)
+                             : scan_table_cell(string, len, offset);
     pipe_matched = scan_table_cell_end(string, len, offset + cell_matched);
 
-    if (cell_matched || pipe_matched) {
+    bool empty_pipe_row = web_tables && body_row && row->n_columns == 0 &&
+        string[row->paragraph_offset] == '|' &&
+        scan_table_row_end(string, len, offset) == len - offset;
+    if (cell_matched || pipe_matched || empty_pipe_row) {
       // We are guaranteed to have a cell, since (1) either we found some
-      // content and cell_matched, or (2) we found an empty cell followed by a
-      // pipe.
+      // content and cell_matched, (2) we found an empty cell followed by a
+      // pipe, or (3) Web mode accepts a body row containing only its leading pipe.
       cmark_strbuf *cell_buf = unescape_pipes(parser->mem, string + offset,
-          cell_matched, (parser->options & (CMARK_OPT_MATH | CMARK_OPT_REFERENCE_USAGES)) != 0);
+          cell_matched, (parser->options & (CMARK_OPT_MATH | CMARK_OPT_REFERENCE_USAGES | CMARK_OPT_WEB_TABLES)) != 0);
       cmark_strbuf_trim(cell_buf);
 
       node_cell *cell = append_row_cell(parser->mem, row);
@@ -431,8 +453,8 @@ static bool web_row_scan_comparable(const unsigned char *string, int from, int t
 /* `column` is the source column of string offset 0 on `line`. */
 static void web_row_positions(cmark_node *row_node, const table_row *row,
                               const unsigned char *string, int line_end, int line,
-                              int column) {
-  if (!web_row_scan_comparable(string, row->paragraph_offset, line_end))
+                              int column, bool web_tables) {
+  if (!web_tables && !web_row_scan_comparable(string, row->paragraph_offset, line_end))
     return;
   cmark_web_position_set_start(row_node, line, column + row->paragraph_offset);
   cmark_web_position_set_end(row_node, line, column + line_end);
@@ -489,7 +511,7 @@ static cmark_node *try_opening_table_header(cmark_syntax_extension *self,
   // Since scan_table_start was successful, we must have a delimiter row.
   delimiter_row = row_from_string(
     self, parser, input + cmark_parser_get_first_nonspace(parser),
-    len - cmark_parser_get_first_nonspace(parser));
+    len - cmark_parser_get_first_nonspace(parser), false);
   // assert may be optimized out, don't rely on it for security boundaries
   if (!delimiter_row) {
       return parent_container;
@@ -507,7 +529,7 @@ static cmark_node *try_opening_table_header(cmark_syntax_extension *self,
   // `row_from_string` bails out early if it does not find a row.
   parent_string = cmark_node_get_string_content(parent_container);
   header_row = row_from_string(self, parser, (unsigned char *)parent_string,
-                               (int)strlen(parent_string));
+                               (int)strlen(parent_string), false);
   if (!header_row || header_row->n_columns != delimiter_row->n_columns) {
     free_table_row(parser->mem, delimiter_row);
     free_table_row(parser->mem, header_row);
@@ -519,9 +541,9 @@ static cmark_node *try_opening_table_header(cmark_syntax_extension *self,
   if (cmark_arena_pop()) {
     delimiter_row = row_from_string(
         self, parser, input + cmark_parser_get_first_nonspace(parser),
-        len - cmark_parser_get_first_nonspace(parser));
+        len - cmark_parser_get_first_nonspace(parser), false);
     header_row = row_from_string(self, parser, (unsigned char *)parent_string,
-                                 (int)strlen(parent_string));
+                                 (int)strlen(parent_string), false);
     // row_from_string can return NULL, add additional check to ensure n_columns match
     if (!delimiter_row || !header_row || header_row->n_columns != delimiter_row->n_columns) {
         free_table_row(parser->mem, delimiter_row);
@@ -613,7 +635,7 @@ static cmark_node *try_opening_table_header(cmark_syntax_extension *self,
     const unsigned char *string = (const unsigned char *)parent_string;
     web_row_positions(table_header, header_row, string,
                       web_line_end(string, (int)strlen(parent_string)), web_header_line,
-                      web_header_column);
+                      web_header_column, (parser->options & CMARK_OPT_WEB_TABLES) != 0);
     cmark_web_position_set_start(parent_container, web_header_line,
                                  web_header_column + header_row->paragraph_offset);
     cmark_web_position_set_end(parent_container, cmark_parser_get_line_number(parser),
@@ -640,7 +662,8 @@ static cmark_node *try_opening_table_row(cmark_syntax_extension *self,
   if (cmark_parser_is_blank(parser))
     return NULL;
 
-  if (get_n_autocompleted_cells(parent_container) > MAX_AUTOCOMPLETED_CELLS) {
+  if (!(parser->options & CMARK_OPT_WEB_TABLES) &&
+      get_n_autocompleted_cells(parent_container) > MAX_AUTOCOMPLETED_CELLS) {
     return NULL;
   }
 
@@ -652,7 +675,7 @@ static cmark_node *try_opening_table_row(cmark_syntax_extension *self,
   table_row_block->as.opaque = parser->mem->calloc(1, sizeof(node_table_row));
 
   row = row_from_string(self, parser, input + cmark_parser_get_first_nonspace(parser),
-      len - cmark_parser_get_first_nonspace(parser));
+      len - cmark_parser_get_first_nonspace(parser), true);
 
   if (!row) {
       // clean up the dangling node
@@ -661,12 +684,13 @@ static cmark_node *try_opening_table_row(cmark_syntax_extension *self,
   }
 
   int table_columns = get_n_table_columns(parent_container);
+  int row_columns = (parser->options & CMARK_OPT_WEB_TABLES) ? row->n_columns : table_columns;
 
   if (parser->options & CMARK_OPT_TABLE_SPANS) {
     // Check the new row for rowspan markers and increment the rowspan of the cell it's merging with
     int i;
 
-    for (i = 0; i < row->n_columns && i < table_columns; ++i) {
+    for (i = 0; i < row->n_columns && i < row_columns; ++i) {
       node_cell *this_cell = &row->cells[i];
       if (this_cell->cell_data->rowspan == 0) {
         // Rowspan marker. Scan up through previous rows and increment the spanning cell's rowspan
@@ -693,7 +717,7 @@ static cmark_node *try_opening_table_row(cmark_syntax_extension *self,
   {
     int i;
 
-    for (i = 0; i < row->n_columns && i < table_columns; ++i) {
+    for (i = 0; i < row->n_columns && i < row_columns; ++i) {
       node_cell *cell = &row->cells[i];
       cmark_node *node = cmark_parser_add_child(parser, table_row_block,
           CMARK_NODE_TABLE_CELL, parent_container->start_column + cell->start_offset);
@@ -718,7 +742,7 @@ static cmark_node *try_opening_table_row(cmark_syntax_extension *self,
 
     incr_table_row_count(parent_container, i);
 
-    for (; i < table_columns; ++i) {
+    for (; i < row_columns; ++i) {
       cmark_node *node = cmark_parser_add_child(
           parser, table_row_block, CMARK_NODE_TABLE_CELL, 0);
       cmark_node_set_syntax_extension(node, self);
@@ -731,7 +755,8 @@ static cmark_node *try_opening_table_row(cmark_syntax_extension *self,
       const unsigned char *string = input + first_nonspace;
       int line_end = web_line_end(string, len - first_nonspace);
       web_row_positions(table_row_block, row, string, line_end,
-                        cmark_parser_get_line_number(parser), first_nonspace + 1);
+                        cmark_parser_get_line_number(parser), first_nonspace + 1,
+                        (parser->options & CMARK_OPT_WEB_TABLES) != 0);
       cmark_web_position_set_end(parent_container, cmark_parser_get_line_number(parser),
                                  first_nonspace + 1 + line_end);
     }
@@ -769,7 +794,7 @@ static int matches(cmark_syntax_extension *self, cmark_parser *parser,
     cmark_arena_push();
     table_row *new_row = row_from_string(
         self, parser, input + cmark_parser_get_first_nonspace(parser),
-        len - cmark_parser_get_first_nonspace(parser));
+        len - cmark_parser_get_first_nonspace(parser), true);
     if (new_row && new_row->n_columns)
       res = 1;
     free_table_row(parser->mem, new_row);

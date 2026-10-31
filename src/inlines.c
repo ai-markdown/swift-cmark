@@ -2061,7 +2061,7 @@ static int parse_inline(cmark_parser *parser, subject *subj, cmark_node *parent,
         strcmp(cmark_node_get_type_string(parent), "table_cell") == 0) {
       cmark_code_metadata_table(new_inl);
     }
-    if ((options & (CMARK_OPT_MATH | CMARK_OPT_REFERENCE_USAGES)) && new_inl->type == CMARK_NODE_CODE &&
+    if ((options & (CMARK_OPT_MATH | CMARK_OPT_REFERENCE_USAGES | CMARK_OPT_WEB_TABLES)) && new_inl->type == CMARK_NODE_CODE &&
         strcmp(cmark_node_get_type_string(parent), "table_cell") == 0) {
       cmark_chunk *literal = &new_inl->as.literal;
       bufsize_t w = 0;
