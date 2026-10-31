@@ -32,6 +32,16 @@
       ],
       "description": "Pinned micromark GFM table escape and empty-row semantics, actual body-cell counts and source positions; whole/byte feeds, CR/LF/CRLF, containers, and sparse-row allocation regression.",
       "license": "MIT; AIMarkdown/ThirdPartyLicenses/ai-markdown/LICENSE-ai-markdown"
+    },
+    {
+      "file": "api_test/fixtures/math_eof_cases.inc",
+      "sourceRepository": "https://github.com/ai-markdown/ai-markdown.git",
+      "sourceRevision": "e9ec1799fdc380d99ce0a6313023515895bbd7bf",
+      "sourceFiles": [
+        "packages/engine/package.json"
+      ],
+      "description": "369 raw math EOF/container inputs from the pinned default remark parser; 366 exact values and three explicitly retained real-EOL quote differences. Original 5639 math-boundary frames additionally compare count and value.",
+      "license": "MIT; AIMarkdown/ThirdPartyLicenses/ai-markdown/LICENSE-ai-markdown"
     }
   ],
   "changes": [

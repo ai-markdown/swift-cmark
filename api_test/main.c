@@ -1655,6 +1655,54 @@ static void math_container_boundary(test_batch_runner *runner) {
   }
 }
 
+static void math_container_eof(test_batch_runner *runner) {
+  static const struct {
+    const char *id, *source, *value, *meta;
+    bool has_math, check_end;
+    int end_line, end_column;
+  } cases[] = {
+#include "fixtures/math_eof_cases.inc"
+  };
+  int flags = CMARK_OPT_MATH | CMARK_OPT_WEB_POSITIONS | CMARK_OPT_FOOTNOTES |
+      CMARK_OPT_FOOTNOTES_LOSSLESS | CMARK_OPT_DEFINITION_LISTS |
+      CMARK_OPT_REFERENCE_USAGES | CMARK_OPT_WEB_CHARACTER_REFERENCES |
+      CMARK_OPT_CODE_METADATA | CMARK_OPT_LIST_SPREAD_METADATA;
+  for (size_t c = 0; c < sizeof(cases) / sizeof(cases[0]); c++) {
+    for (int chunked = 0; chunked <= 1; chunked++) {
+      cmark_parser *parser = cmark_parser_new(flags);
+      size_t length = strlen(cases[c].source);
+      if (chunked) {
+        for (size_t i = 0; i < length; i++) cmark_parser_feed(parser, cases[c].source + i, 1);
+      } else cmark_parser_feed(parser, cases[c].source, length);
+      cmark_node *document = cmark_parser_finish(parser);
+      cmark_iter *iter = cmark_iter_new(document);
+      cmark_event_type event;
+      int count = 0;
+      while ((event = cmark_iter_next(iter)) != CMARK_EVENT_DONE) {
+        cmark_node *node = cmark_iter_get_node(iter);
+        if (event != CMARK_EVENT_ENTER || node->type != CMARK_NODE_MATH_BLOCK) continue;
+        count++;
+        STR_EQ(runner, cmark_node_get_literal(node), cases[c].value, "math EOF value %s/%d", cases[c].id, chunked);
+        STR_EQ(runner, cmark_node_get_fence_info(node), cases[c].meta, "math EOF meta %s/%d", cases[c].id, chunked);
+        if (cases[c].check_end) {
+          INT_EQ(runner, node->end_line, cases[c].end_line, "math whitespace EOF end line");
+          INT_EQ(runner, node->end_column, cases[c].end_column, "math whitespace EOF end column");
+        }
+      }
+      INT_EQ(runner, count, cases[c].has_math ? 1 : 0, "math EOF node count %s/%d", cases[c].id, chunked);
+      cmark_iter_free(iter);
+      cmark_node_free(document);
+      cmark_parser_free(parser);
+    }
+    cmark_node *legacy = cmark_parse_document(cases[c].source, strlen(cases[c].source), flags & ~CMARK_OPT_MATH);
+    cmark_iter *iter = cmark_iter_new(legacy);
+    while (cmark_iter_next(iter) != CMARK_EVENT_DONE)
+      OK(runner, cmark_iter_get_node(iter)->type != CMARK_NODE_MATH_BLOCK, "math remains opt-in");
+    cmark_iter_free(iter);
+    cmark_node_free(legacy);
+  }
+}
+
 static void task_and_code_boundaries(test_batch_runner *runner) {
   static const char *endings[] = {"\n", "\r\n", "\r"};
   cmark_gfm_core_extensions_ensure_registered();
@@ -1759,6 +1807,7 @@ int main() {
   parser_interrupt(runner);
   table_spans(runner);
   math_container_boundary(runner);
+  math_container_eof(runner);
   task_and_code_boundaries(runner);
 
   test_print_summary(runner);
