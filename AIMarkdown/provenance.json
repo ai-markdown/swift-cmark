@@ -50,7 +50,7 @@
       "sourceFiles": [
         "packages/engine/package.json"
       ],
-      "description": "1275 actual raw Web inputs: 608 definition inputs, 585 complete math ancestor-wrapper controls, 81 merged/container controls and the original latex-915 long corpus. Checks selected node structure, list/item/description spread, byte source endpoints and term text origins with whole and byte feeds. Preserves mask 0 for one virtual-tab term text and 18 existing unsupported footnote-prefix blank-EOF controls; their actual Web points remain frozen.",
+      "description": "1431 actual raw Web inputs: 608 definition inputs, 585 complete math ancestor-wrapper controls, 81 merged/container controls, original latex-915 long corpus, three reported spread regressions, all 46 definition-list-multi scalar prefixes across LF/CRLF/CR and 15 marker/lazy controls. Checks selected structure, list/item/description spread, byte endpoints and term text origins with whole and byte feeds. Preserves mask 0 for one virtual-tab term text and 18 existing unsupported footnote-prefix blank-EOF controls; actual Web coordinates remain frozen.",
       "license": "MIT; AIMarkdown/ThirdPartyLicenses/ai-markdown/LICENSE-ai-markdown"
     },
     {

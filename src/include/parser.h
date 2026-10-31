@@ -49,6 +49,7 @@ struct cmark_parser {
   /* See the documentation for cmark_parser_has_partially_consumed_tab() in cmark.h */
   bool partially_consumed_tab;
   bool definition_lazy_code;
+  bool definition_marker_interrupt;
   bool definition_synthetic_ending;
   int definition_line_offset;
   int definition_prefix_size; /* Last consumed definition linePrefix on this physical line. */

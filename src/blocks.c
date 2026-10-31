@@ -1925,6 +1925,7 @@ static void add_text_to_container(cmark_parser *parser, cmark_node *container,
   // then treat this as a "lazy continuation line" and add it to
   // the open paragraph.
   if (parser->current != last_matched_container &&
+      !parser->definition_marker_interrupt &&
       container == last_matched_container && (!parser->blank || (parser->options & CMARK_OPT_PRESERVE_WHITESPACE)) &&
       S_type(parser->current) == CMARK_NODE_PARAGRAPH) {
     if ((parser->options & CMARK_OPT_DEFINITION_LISTS) && parser->current->definition.lazy_offset == 0) {
@@ -2056,6 +2057,9 @@ static bool S_open_definition(cmark_parser *parser, cmark_chunk *input,
   if (parser->indent >= 4 || peek_at(input, parser->first_nonspace) != ':' ||
       !(S_is_space_or_tab(peek_at(input, parser->first_nonspace + 1)) ||
         S_is_line_end_char(peek_at(input, parser->first_nonspace + 1)))) return false;
+  /* A document definition marker interrupts an unmatched container's lazy
+   * flow even when that container cannot supply an external definition term. */
+  parser->definition_marker_interrupt = true;
   cmark_node *container = *matched;
   cmark_node *list = NULL;
   cmark_node *term = NULL;
@@ -2156,6 +2160,11 @@ static bool S_open_definition(cmark_parser *parser, cmark_chunk *input,
       }
       else cmark_node_insert_before(term, list);
     }
+    /* An empty description at EOF takes its start from this segment's
+     * term-flow token, not from the first segment of a merged definition list. */
+    list->definition.flow_line = omit_term ? term->definition.flow_line : term->start_line;
+    list->definition.flow_column = omit_term ? term->definition.flow_column :
+        term->definition.term_start_column > 0 ? term->definition.term_start_column : term->start_column;
     // Each paragraph flow line is a separate term; inline parsing happens later.
     int line = term->start_line;
     size_t term_line_index = 0;
@@ -2230,8 +2239,8 @@ static bool S_open_definition(cmark_parser *parser, cmark_chunk *input,
   if (empty) {
     description->start_column = after_marker_offset + 1;
     if (parser->definition_synthetic_ending && after_marker_offset == input->len - 1) {
-      description->start_line = list->start_line;
-      description->start_column = list->start_column;
+      description->start_line = list->definition.flow_line;
+      description->start_column = list->definition.flow_column;
     }
   }
   description->definition.padding = padding;
@@ -2281,6 +2290,7 @@ static void S_process_line(cmark_parser *parser, const unsigned char *buffer,
   parser->partially_consumed_tab = false;
   parser->definition_lazy_code = false;
   parser->definition_prefix_size = 0;
+  parser->definition_marker_interrupt = false;
 
   input.data = parser->curline.ptr;
   input.len = parser->curline.size;
