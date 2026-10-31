@@ -99,6 +99,16 @@
       "customBaselineSHA256": "5c457b223020d3965b95deb23afab6484d64d9e571253907d5722a60a2b14691",
       "description": "365 actual raw Web and default HAST inputs: 34 original math-boundary prefixes, 324 HTML tag/comment/attribute whitespace, physical EOL and container controls, and seven ordinary/protected syntax cases. Whole/byte feeds, tracking parity, exact UTF-8 literals, unchanged custom source ranges and unchanged legacy literals/ranges are checked in 36502 assertions.",
       "license": "MIT; AIMarkdown/ThirdPartyLicenses/ai-markdown/LICENSE-ai-markdown; AIMarkdown/ThirdPartyLicenses/definition-list/LICENSE-micromark-core-commonmark"
+    },
+    {
+      "file": "api_test/web_tilde_positions.c; api_test/fixtures/tilde_position_cases.inc",
+      "sourceRepository": "https://github.com/ai-markdown/ai-markdown.git",
+      "sourceRevision": "e9ec1799fdc380d99ce0a6313023515895bbd7bf",
+      "sourceFiles": [
+        "packages/engine/package.json"
+      ],
+      "description": "252 actual raw Web tilde inputs covering unmatched one/two markers, long runs, matched single/double delete, mismatched delimiters, UTF-8 prefixes, physical CR/LF/CRLF, containers and multiline spans. Selected literal and delete positions use actual token events; metadata-on/off native ranges and traversal remain identical.",
+      "license": "MIT; AIMarkdown/ThirdPartyLicenses/ai-markdown/LICENSE-ai-markdown"
     }
   ],
   "changes": [

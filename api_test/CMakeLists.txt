@@ -47,3 +47,11 @@ if(WIN32 AND BUILD_SHARED_LIBS)
   set_tests_properties(web_inline_html_closeout_test PROPERTIES
     ENVIRONMENT "PATH=$<TARGET_FILE_DIR:libcmark-gfm>;$<TARGET_FILE_DIR:libcmark-gfm-extensions>;$ENV{PATH}")
 endif()
+
+add_executable(web_tilde_positions_test web_tilde_positions.c harness.c)
+target_link_libraries(web_tilde_positions_test PRIVATE libcmark-gfm libcmark-gfm-extensions)
+add_test(NAME web_tilde_positions_test COMMAND web_tilde_positions_test)
+if(WIN32 AND BUILD_SHARED_LIBS)
+  set_tests_properties(web_tilde_positions_test PROPERTIES
+    ENVIRONMENT "PATH=$<TARGET_FILE_DIR:libcmark-gfm>;$<TARGET_FILE_DIR:libcmark-gfm-extensions>;$ENV{PATH}")
+endif()

@@ -6,19 +6,27 @@
 
 cmark_node_type CMARK_NODE_STRIKETHROUGH;
 
+static void token_span(cmark_parser *parser, cmark_node *node, int start, int end) {
+  if (!(parser->options & CMARK_OPT_WEB_POSITIONS)) return;
+  node->web_subject_start = start;
+  node->web_subject_end = end;
+  node->web_position_flags = CMARK_WEB_POSITION_SUBJECT;
+}
+
 static cmark_node *match(cmark_syntax_extension *self, cmark_parser *parser,
                          cmark_node *parent, unsigned char character,
                          cmark_inline_parser *inline_parser) {
   cmark_node *res = NULL;
   int left_flanking, right_flanking, punct_before, punct_after, delims;
   char buffer[101];
+  int start = cmark_inline_parser_get_offset(inline_parser);
 
   if (character != '~')
     return NULL;
 
   if (parser->options & CMARK_OPT_WEB_EMPHASIS) {
     cmark_chunk *input = cmark_inline_parser_get_chunk(inline_parser);
-    int start = cmark_inline_parser_get_offset(inline_parser), end = start;
+    int end = start;
     while (end < input->len && input->data[end] == '~') end++;
     // Web rejects the complete run when a third tilde is present: do not restart
     // at the final one/two markers after cmark's fixed scan buffer boundary.
@@ -31,6 +39,7 @@ static cmark_node *match(cmark_syntax_extension *self, cmark_parser *parser,
       res->start_line = res->end_line = cmark_inline_parser_get_line(inline_parser);
       res->end_column = cmark_inline_parser_get_column(inline_parser) - 1;
       res->start_column = res->end_column - (end - start) + 1;
+      token_span(parser, res, start, end);
       return res;
     }
   }
@@ -47,6 +56,7 @@ static cmark_node *match(cmark_syntax_extension *self, cmark_parser *parser,
   cmark_node_set_literal(res, buffer);
   res->start_line = res->end_line = cmark_inline_parser_get_line(inline_parser);
   res->start_column = cmark_inline_parser_get_column(inline_parser) - delims;
+  token_span(parser, res, start, start + delims);
 
   if ((left_flanking || right_flanking) &&
       (delims == 2 || (!(parser->options & CMARK_OPT_STRIKETHROUGH_DOUBLE_TILDE) && delims == 1))) {
@@ -70,10 +80,15 @@ static delimiter *insert(cmark_syntax_extension *self, cmark_parser *parser,
   if (opener->inl_text->as.literal.len != closer->inl_text->as.literal.len)
     goto done;
 
+  bool positions = (opener->inl_text->web_position_flags & CMARK_WEB_POSITION_SUBJECT) &&
+      (closer->inl_text->web_position_flags & CMARK_WEB_POSITION_SUBJECT);
+  int start = opener->inl_text->web_subject_start;
+  int end = closer->inl_text->web_subject_end;
   if (!cmark_node_set_type(strikethrough, CMARK_NODE_STRIKETHROUGH))
     goto done;
 
   cmark_node_set_syntax_extension(strikethrough, self);
+  if (positions) token_span(parser, strikethrough, start, end);
 
   tmp = cmark_node_next(opener->inl_text);
 
