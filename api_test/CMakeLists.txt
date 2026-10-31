@@ -39,3 +39,11 @@ if(WIN32 AND BUILD_SHARED_LIBS)
   set_tests_properties(web_table_prefix_test PROPERTIES
     ENVIRONMENT "PATH=$<TARGET_FILE_DIR:libcmark-gfm>;$<TARGET_FILE_DIR:libcmark-gfm-extensions>;$ENV{PATH}")
 endif()
+
+add_executable(web_inline_html_closeout_test web_inline_html_closeout.c harness.c)
+target_link_libraries(web_inline_html_closeout_test PRIVATE libcmark-gfm libcmark-gfm-extensions)
+add_test(NAME web_inline_html_closeout_test COMMAND web_inline_html_closeout_test)
+if(WIN32 AND BUILD_SHARED_LIBS)
+  set_tests_properties(web_inline_html_closeout_test PROPERTIES
+    ENVIRONMENT "PATH=$<TARGET_FILE_DIR:libcmark-gfm>;$<TARGET_FILE_DIR:libcmark-gfm-extensions>;$ENV{PATH}")
+endif()

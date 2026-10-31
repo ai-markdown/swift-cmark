@@ -1235,6 +1235,52 @@ cmark_chunk cmark_clean_attributes(cmark_mem *mem, cmark_chunk *attributes) {
   return cmark_clean_url(mem, attributes);
 }
 
+/* micromark htmlText excludes at most three virtual columns of linePrefix
+ * after every physical line ending, including inside quoted attributes and
+ * comments. Definition-list paragraphs retain this whitespace in their inline
+ * subject. Compile only that opt-in profile, using the actual matched interval
+ * and the block parser's physical line records; legacy ranges keep the original
+ * subject coordinates. Tabs partially consumed by linePrefix leave virtual
+ * spaces, while a tab after the three-column limit stays a literal tab. */
+static cmark_chunk definition_html_text_value(subject *subj, bufsize_t start,
+                                               bufsize_t end) {
+  cmark_chunk original = cmark_chunk_dup(&subj->input, start, end - start);
+  if (!memchr(original.data, '\n', original.len)) return original;
+  cmark_strbuf value = CMARK_BUF_INIT(subj->mem);
+  for (bufsize_t i = start; i < end;) {
+    unsigned char c = subj->input.data[i++];
+    if (c != '\n') {
+      cmark_strbuf_putc(&value, c);
+      continue;
+    }
+    const cmark_math_line *row = math_line_at(subj, i - 1);
+    const cmark_math_line *next = math_line_at(subj, i);
+    if (!row || !next || next == row || next->offset != i ||
+        (row->ending != 10 && row->ending != 13 && row->ending != 0x0d0a)) {
+      cmark_strbuf_free(&value);
+      return original;
+    }
+    if (row->ending != 10) cmark_strbuf_putc(&value, '\r');
+    if (row->ending != 13) cmark_strbuf_putc(&value, '\n');
+    int consumed = 0, column = next->visual_column;
+    while (i < end && consumed < 3) {
+      c = subj->input.data[i];
+      if (c != ' ' && c != '\t') break;
+      int width = c == '\t' ? 4 - (column - 1) % 4 : 1;
+      int take = width < 3 - consumed ? width : 3 - consumed;
+      i++;
+      consumed += take;
+      column += width;
+      for (int j = take; j < width; j++) cmark_strbuf_putc(&value, ' ');
+    }
+  }
+  if (value.size == original.len && !memcmp(value.ptr, original.data, value.size)) {
+    cmark_strbuf_free(&value);
+    return original;
+  }
+  return cmark_chunk_buf_detach(&value);
+}
+
 // Parse an autolink or HTML tag.
 // Assumes the subject has a '<' character at the current position.
 static cmark_node *handle_pointy_brace(subject *subj, int options) {
@@ -1320,7 +1366,9 @@ static cmark_node *handle_pointy_brace(subject *subj, int options) {
     }
   }
   if (matchlen > 0) {
-    contents = cmark_chunk_dup(&subj->input, subj->pos - 1, matchlen + 1);
+    contents = (options & CMARK_OPT_DEFINITION_LISTS)
+        ? definition_html_text_value(subj, subj->pos - 1, subj->pos + matchlen)
+        : cmark_chunk_dup(&subj->input, subj->pos - 1, matchlen + 1);
     subj->pos += matchlen;
     cmark_node *node = make_raw_html(subj, subj->pos - matchlen - 1, subj->pos - 1, contents);
     adjust_subj_node_newlines(subj, node, matchlen, 1, options);
