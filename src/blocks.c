@@ -1667,6 +1667,7 @@ static void open_new_blocks(cmark_parser *parser, cmark_node **container,
   bool indented;
   cmark_list *data = NULL;
   bool maybe_lazy = S_type(parser->current) == CMARK_NODE_PARAGRAPH;
+  bool web_paragraph_interrupt = (parser->options & CMARK_OPT_WEB_CODE_SYNTAX) && maybe_lazy && all_matched;
   cmark_node *initial_container = *container;
   cmark_node *initial_parent = parser->current->parent;
   bool web_code_interrupt = (parser->options & CMARK_OPT_WEB_CODE_SYNTAX) &&
@@ -1845,7 +1846,7 @@ static void open_new_blocks(cmark_parser *parser, cmark_node **container,
                depth < MAX_LIST_DEPTH &&
                (matched = parse_list_marker(
                     parser->mem, input, parser->first_nonspace,
-                    ((*container)->type == CMARK_NODE_PARAGRAPH ||
+                    ((*container)->type == CMARK_NODE_PARAGRAPH || web_paragraph_interrupt ||
                      (web_code_interrupt && initial_parent == *container) ||
                      ((*container)->type == CMARK_NODE_DEFINITION_DESCRIPTION &&
                       (*container)->start_line == parser->line_number && (*container)->definition.interrupt)), &data))) {
