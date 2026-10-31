@@ -1,6 +1,8 @@
 add_library(libcmark-gfm-extensions
   autolink.c
   core-extensions.c
+  highlight.c
+  web-autolink.c
   ext_scanners.c
   ext_scanners.h
   ext_scanners.re

@@ -29,6 +29,7 @@ add_library(libcmark-gfm
   plaintext.c
   plugin.c
   references.c
+  reference_key.c
   registry.c
   render.c
   scanners.c

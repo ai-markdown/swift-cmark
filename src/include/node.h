@@ -88,7 +88,7 @@ typedef struct {
   cmark_strbuf source, compiled, pending;
   cmark_chunk info, value, lang, meta;
   int kind;
-  bool finished, indented_qualified, closed, boundary_trim;
+  bool finished, indented_qualified, closed, boundary_trim, list_boundary;
 } cmark_code_metadata;
 
 struct cmark_node {

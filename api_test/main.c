@@ -1655,6 +1655,72 @@ static void math_container_boundary(test_batch_runner *runner) {
   }
 }
 
+static void task_and_code_boundaries(test_batch_runner *runner) {
+  static const char *endings[] = {"\n", "\r\n", "\r"};
+  cmark_gfm_core_extensions_ensure_registered();
+  for (size_t e = 0; e < 3; e++) {
+    for (int chunked = 0; chunked <= 1; chunked++) {
+      char *source = math_boundary_eol("- [x]\nnext", endings[e]);
+      cmark_parser *parser = cmark_parser_new(CMARK_OPT_WEB_CHARACTER_REFERENCES |
+          CMARK_OPT_WEB_POSITIONS | CMARK_OPT_SOFTBREAK_METADATA);
+      cmark_parser_attach_syntax_extension(parser, cmark_find_syntax_extension("tasklist"));
+      if (chunked) {
+        for (size_t i = 0; i < strlen(source); i++) cmark_parser_feed(parser, source + i, 1);
+      } else cmark_parser_feed(parser, source, strlen(source));
+      cmark_node *document = cmark_parser_finish(parser);
+      cmark_node *paragraph = document->first_child->first_child->first_child;
+      cmark_node *head = paragraph->first_child;
+      int line, column;
+      INT_EQ(runner, cmark_node_get_web_position(paragraph, &line, &column, NULL, NULL), 3,
+             "task callback captures both endpoints");
+      INT_EQ(runner, line, 1, "task callback keeps first line");
+      INT_EQ(runner, column, 7, "task callback advances one character");
+      if (e == 1) {
+        INT_EQ(runner, head->type, CMARK_NODE_SOFTBREAK, "CRLF retains LF");
+        INT_EQ(runner, head->softbreak_ending, 10, "residual is LF, not CRLF");
+        head = head->next;
+      }
+      STR_EQ(runner, cmark_node_get_literal(head), "next", "task continuation text");
+      cmark_node_free(document);
+      cmark_parser_free(parser);
+      free(source);
+
+      static const struct { const char *source, *value; } code_cases[] = {
+        {"- item\n\n    ```\n    code\n\na", "code"},
+        {"- item\n\n    ```\n    code\n\n\na", "code\n"},
+        {"- item\n\n    ```\n    code\n\n", "code\n"},
+        {"- item\n\n    ```\n    code\n\n    ```\n\na", "code\n"},
+        {"```\ncode\n\n", "code\n"},
+        {"- item\n\n    ```\n    code\n\n- next", "code\n"},
+        {"- item\n\n    ```\n    code\n\n1. next", "code\n"},
+        {"- item\n\n    ```\n    code\n\n> next", "code\n"}
+      };
+      for (size_t c = 0; c < sizeof(code_cases) / sizeof(code_cases[0]); c++) {
+        source = math_boundary_eol(code_cases[c].source, endings[e]);
+        char *value = math_boundary_eol(code_cases[c].value, endings[e]);
+        parser = cmark_parser_new(CMARK_OPT_CODE_METADATA | CMARK_OPT_WEB_POSITIONS);
+        if (chunked) {
+          for (size_t i = 0; i < strlen(source); i++) cmark_parser_feed(parser, source + i, 1);
+        } else cmark_parser_feed(parser, source, strlen(source));
+        document = cmark_parser_finish(parser);
+        cmark_iter *iter = cmark_iter_new(document);
+        while (cmark_iter_next(iter) != CMARK_EVENT_DONE) {
+          cmark_node *node = cmark_iter_get_node(iter);
+          if (node->type == CMARK_NODE_CODE_BLOCK) {
+            STR_EQ(runner, cmark_node_get_code_metadata_value(node), value, "list flow code boundary");
+            break;
+          }
+        }
+        cmark_iter_free(iter);
+        cmark_node_free(document);
+        cmark_parser_free(parser);
+        free(source);
+        free(value);
+      }
+    }
+  }
+}
+
 int main() {
   int retval;
   test_batch_runner *runner = test_batch_runner_new();
@@ -1693,6 +1759,7 @@ int main() {
   parser_interrupt(runner);
   table_spans(runner);
   math_container_boundary(runner);
+  task_and_code_boundaries(runner);
 
   test_print_summary(runner);
   retval = test_ok(runner) ? 0 : 1;

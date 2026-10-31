@@ -6,8 +6,21 @@
       "file": "api_test/main.c:math_container_boundary",
       "sourceRepository": "https://github.com/ai-markdown/ai-markdown.git",
       "sourceRevision": "e9ec1799fdc380d99ce0a6313023515895bbd7bf",
-      "sourceFiles": ["packages/engine/src/preprocessors/latex.test.ts", "packages/engine/package.json"],
+      "sourceFiles": [
+        "packages/engine/src/preprocessors/latex.test.ts",
+        "packages/engine/package.json"
+      ],
       "description": "Container-ended math regressions and expanded EOF, fence, whitespace, line-ending, and container-prefix cases; expected values checked against the pinned remark-parse/remark-math runtime.",
+      "license": "MIT; AIMarkdown/ThirdPartyLicenses/ai-markdown/LICENSE-ai-markdown"
+    },
+    {
+      "file": "api_test/main.c:task_and_code_boundaries",
+      "sourceRepository": "https://github.com/ai-markdown/ai-markdown.git",
+      "sourceRevision": "e9ec1799fdc380d99ce0a6313023515895bbd7bf",
+      "sourceFiles": [
+        "packages/engine/package.json"
+      ],
+      "description": "Task callback slice-one-character behavior and list-ended fenced code values from the pinned remark-parse/remark-gfm runtime; LF, CRLF, CR, and byte-feed coverage.",
       "license": "MIT; AIMarkdown/ThirdPartyLicenses/ai-markdown/LICENSE-ai-markdown"
     }
   ],

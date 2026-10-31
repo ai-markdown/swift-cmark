@@ -257,7 +257,7 @@ static void add_line(cmark_node *node, cmark_chunk *ch, cmark_parser *parser) {
       cmark_strbuf_putc(&node->content, ' ');
     }
   }
-  if ((parser->options & (CMARK_OPT_MATH | CMARK_OPT_REFERENCE_DEFINITIONS | CMARK_OPT_WEB_CHARACTER_REFERENCES | CMARK_OPT_CODE_METADATA | CMARK_OPT_SOFTBREAK_METADATA | CMARK_OPT_WEB_POSITIONS)) &&
+  if ((parser->options & (CMARK_OPT_MATH | CMARK_OPT_REFERENCE_DEFINITIONS | CMARK_OPT_REFERENCE_USAGES | CMARK_OPT_WEB_CHARACTER_REFERENCES | CMARK_OPT_CODE_METADATA | CMARK_OPT_SOFTBREAK_METADATA | CMARK_OPT_WEB_POSITIONS)) &&
       (node->type == CMARK_NODE_PARAGRAPH || node->type == CMARK_NODE_HEADING)) {
     if (node->math_line_count == node->math_line_capacity) {
       node->math_line_capacity = node->math_line_capacity ? node->math_line_capacity * 2 : 8;
@@ -575,6 +575,21 @@ static cmark_node *finalize(cmark_parser *parser, cmark_node *b) {
   }
 
   case CMARK_NODE_CODE_BLOCK:
+    if (b->code_metadata && b->code_metadata->list_boundary) {
+      bool container_prefix = false;
+      /* New document containers contribute the boundary EOL to codeFlow;
+       * ordinary flow exits before it. The successor AST is now available. */
+      for (cmark_node *owner = b->parent; owner; owner = owner->parent) {
+        cmark_node *next = owner->next;
+        if (next && next->start_line == parser->line_number &&
+            (next->type == CMARK_NODE_ITEM || next->type == CMARK_NODE_LIST ||
+             next->type == CMARK_NODE_BLOCK_QUOTE)) {
+          container_prefix = true;
+          break;
+        }
+      }
+      if (!container_prefix) b->code_metadata->boundary_trim = true;
+    }
     cmark_code_metadata_finish(b);
     if (!b->as.code.fenced) { // indented code
       remove_trailing_blank_lines(node_content);
@@ -1444,8 +1459,17 @@ static cmark_node *check_open_blocks(cmark_parser *parser, cmark_chunk *input,
       }
       break;
     case CMARK_NODE_ITEM:
-      if (!parse_node_item_prefix(parser, input, container))
+      if (!parse_node_item_prefix(parser, input, container)) {
+        /* A list flow boundary excludes its final line ending, just like the
+         * footnote container boundary. EOF and explicit fences do not enter
+         * this branch, so their trailing blank code lines remain intact. */
+        if (parser->options & CMARK_OPT_CODE_METADATA) {
+          for (cmark_node *open = parser->current; open && open != container; open = open->parent)
+            if (open->code_metadata && open->code_metadata->kind == 1)
+              open->code_metadata->list_boundary = true;
+        }
         goto done;
+      }
       break;
     case CMARK_NODE_MATH_BLOCK:
       if (!parse_math_prefix(parser, input, container, &should_continue)) goto done;
