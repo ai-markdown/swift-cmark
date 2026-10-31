@@ -40,7 +40,7 @@
       "sourceFiles": [
         "packages/engine/package.json"
       ],
-      "description": "585 raw math EOF/container inputs from the pinned default remark parser, including the original 369 inputs and 216 real-EOL quote/fence/container controls. Whole and byte feeds compare exact values and both source endpoints for every actual math node. Original 5639 math-boundary frames additionally compare count and value.",
+      "description": "585 raw math EOF/container inputs from the pinned default remark parser, including the original 369 inputs and 216 real-EOL quote/fence/container controls. Whole and byte feeds compare exact values and both source endpoints for every actual math node. Original 5639 math-boundary frames additionally compare count and value. The same actual opener/flow-exit coordinates are published as opt-in Web events; whole and byte feeds strictly compare both event endpoints and positions-off parsing verifies absence.",
       "license": "MIT; AIMarkdown/ThirdPartyLicenses/ai-markdown/LICENSE-ai-markdown"
     },
     {
@@ -117,9 +117,9 @@
       "sourceFiles": [
         "packages/engine/package.json"
       ],
-      "fixtureSHA256": "0f42d92c7f5fd8ebb0507e9d6423db13e07af4f4a1951fc9807c67ef28b6d1cc",
-      "actualWebTreesSHA256": "15cd79bed25dc058f2993193373b293bb9994e456d1e806af4948fe1b704b934",
-      "description": "1630 actual raw Web inputs: 963 existing spread footnote cases, the 22 prior shape failures (deduplicated), 120 container/EOL controls and all 302 definition-stress inputs and 72 blank/indented description-spread controls, the 126 definition-list inputs, original latex-915 long corpus and 27 thematic-break/EOL/container controls. Whole and byte feeds check selected list/item/quote/footnote/definition/code/paragraph structure, container/code/ordinary-paragraph/thematic-break source endpoints, code metadata values and list/item/definition-description spread; tracking preserves every native range. Task callback paragraph positions remain owned by their separate callback evidence. Existing table-prefix paragraph events are preserved. The original 5791-input legacy table-profile census additionally has zero shape, spread-value or missing-spread differences.",
+      "fixtureSHA256": "de6bc0c69a4f6341c8e947385c2966d3ad2a29c4dfaf5347735776f1e50d1621",
+      "actualWebTreesSHA256": "f32645d8bcce72622b6fe3f3d546326d329c93aa3b987cae8979091d41eff72b",
+      "description": "1639 actual raw Web inputs: 963 existing spread footnote cases, the 22 prior shape failures (deduplicated), 120 container/EOL controls and all 302 definition-stress inputs and 72 blank/indented description-spread controls, the 126 definition-list inputs, original latex-915 long corpus and 27 thematic-break/EOL/container controls and nine reference-only paragraph/new-container lifetime controls. Whole and byte feeds check selected list/item/quote/footnote/definition/code/paragraph structure, container/code/ordinary-paragraph/thematic-break source endpoints, code metadata values and list/item/definition-description spread; tracking preserves every native range. Task callback paragraph positions remain owned by their separate callback evidence. Existing table-prefix paragraph events are preserved. The original 5791-input legacy table-profile census additionally has zero shape, spread-value or missing-spread differences.",
       "license": "MIT; AIMarkdown/ThirdPartyLicenses/ai-markdown/LICENSE-ai-markdown"
     },
     {

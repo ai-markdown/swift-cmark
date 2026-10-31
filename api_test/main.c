@@ -1689,6 +1689,12 @@ static void math_container_eof(test_batch_runner *runner) {
           INT_EQ(runner, node->start_column, cases[c].start_column, "math EOF source start column");
           INT_EQ(runner, node->end_line, cases[c].end_line, "math whitespace EOF end line");
           INT_EQ(runner, node->end_column, cases[c].end_column, "math whitespace EOF end column");
+          int sl = 0, sc = 0, el = 0, ec = 0;
+          INT_EQ(runner, cmark_node_get_web_position(node, &sl, &sc, &el, &ec), 3, "math flow parser event %s/%d", cases[c].id, chunked);
+          INT_EQ(runner, sl, cases[c].start_line, "math flow event start line");
+          INT_EQ(runner, sc, cases[c].start_column, "math flow event start column");
+          INT_EQ(runner, el, cases[c].end_line, "math flow event end line");
+          INT_EQ(runner, ec, cases[c].end_column + 1, "math flow event exclusive end column");
         }
       }
       INT_EQ(runner, count, cases[c].has_math ? 1 : 0, "math EOF node count %s/%d", cases[c].id, chunked);
@@ -1702,6 +1708,15 @@ static void math_container_eof(test_batch_runner *runner) {
       OK(runner, cmark_iter_get_node(iter)->type != CMARK_NODE_MATH_BLOCK, "math remains opt-in");
     cmark_iter_free(iter);
     cmark_node_free(legacy);
+    cmark_node *untracked = cmark_parse_document(cases[c].source, strlen(cases[c].source), flags & ~CMARK_OPT_WEB_POSITIONS);
+    iter = cmark_iter_new(untracked);
+    while (cmark_iter_next(iter) != CMARK_EVENT_DONE) {
+      cmark_node *node = cmark_iter_get_node(iter);
+      if (node->type == CMARK_NODE_MATH_BLOCK)
+        INT_EQ(runner, cmark_node_get_web_position(node, NULL, NULL, NULL, NULL), 0, "math flow positions remain opt-in");
+    }
+    cmark_iter_free(iter);
+    cmark_node_free(untracked);
   }
 }
 

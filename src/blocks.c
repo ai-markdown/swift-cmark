@@ -574,6 +574,11 @@ static cmark_node *finalize(cmark_parser *parser, cmark_node *b) {
   }
 
   case CMARK_NODE_MATH_BLOCK: {
+    if (parser->options & CMARK_OPT_WEB_POSITIONS) {
+      /* The flow exit above has consumed the actual closing fence, enclosing
+       * container boundary or physical EOF event, independently of value trim. */
+      cmark_web_position_set_end(b, b->end_line, b->end_column + 1);
+    }
     // First content line is the meta string. Keep trailing spaces: unlike code info,
     // math meta is not trimmed by mdast-util-math.
     for (pos = 0; pos < node_content->size && !S_is_line_end_char(node_content->ptr[pos]); pos++) {}
@@ -1662,6 +1667,21 @@ static void open_new_blocks(cmark_parser *parser, cmark_node **container,
   bool indented;
   cmark_list *data = NULL;
   bool maybe_lazy = S_type(parser->current) == CMARK_NODE_PARAGRAPH;
+  cmark_node *initial_container = *container;
+  cmark_node *initial_parent = parser->current->parent;
+  bool web_code_interrupt = (parser->options & CMARK_OPT_WEB_CODE_SYNTAX) &&
+      parser->current->type == CMARK_NODE_CODE_BLOCK && !parser->current->as.code.fenced;
+  bool web_flow_boundary = false;
+  if ((parser->options & CMARK_OPT_WEB_CODE_SYNTAX) && !all_matched) {
+    cmark_node *open = parser->current;
+    for (; open && open != initial_container; open = open->parent)
+      if (open->type == CMARK_NODE_BLOCK_QUOTE || open->type == CMARK_NODE_ITEM ||
+          open->type == CMARK_NODE_FOOTNOTE_DEFINITION || open->type == CMARK_NODE_DEFINITION_DESCRIPTION)
+        web_flow_boundary = true;
+    if (!open) web_flow_boundary = false;
+  }
+  /* add_child may finalize and free a reference-only current paragraph.
+   * Retain flow facts before any block-opening mutation, not its pointer. */
   cmark_node_type cont_type = S_type(*container);
   bufsize_t matched = 0;
   int lev = 0;
@@ -1723,6 +1743,8 @@ static void open_new_blocks(cmark_parser *parser, cmark_node **container,
     } else if (!indented && (parser->options & CMARK_OPT_MATH) &&
                (matched = math_fence(input, parser->first_nonspace, false))) {
       *container = add_child(parser, *container, CMARK_NODE_MATH_BLOCK, parser->first_nonspace + 1);
+      if (parser->options & CMARK_OPT_WEB_POSITIONS)
+        cmark_web_position_set_start(*container, parser->line_number, parser->first_nonspace + 1);
       (*container)->math_fence_length = matched;
       (*container)->as.code.fenced = 1;
       (*container)->as.code.fence_offset = parser->first_nonspace - parser->offset;
@@ -1824,10 +1846,7 @@ static void open_new_blocks(cmark_parser *parser, cmark_node **container,
                (matched = parse_list_marker(
                     parser->mem, input, parser->first_nonspace,
                     ((*container)->type == CMARK_NODE_PARAGRAPH ||
-                     ((parser->options & CMARK_OPT_WEB_CODE_SYNTAX) &&
-                      parser->current->type == CMARK_NODE_CODE_BLOCK &&
-                      !parser->current->as.code.fenced &&
-                      parser->current->parent == *container) ||
+                     (web_code_interrupt && initial_parent == *container) ||
                      ((*container)->type == CMARK_NODE_DEFINITION_DESCRIPTION &&
                       (*container)->start_line == parser->line_number && (*container)->definition.interrupt)), &data))) {
 
@@ -1900,16 +1919,8 @@ static void open_new_blocks(cmark_parser *parser, cmark_node **container,
     } else if (indented && !maybe_lazy && !parser->blank) {
       /* Web codeIndented includes its indentation after container prefixes. */
       int web_code_start = parser->partially_consumed_tab ? 0 : parser->offset + 1;
-      bool web_flow_boundary = false;
-      if ((parser->options & CMARK_OPT_WEB_CODE_SYNTAX) && !all_matched) {
-        cmark_node *open = parser->current;
-        for (; open && open != *container; open = open->parent)
-          if (open->type == CMARK_NODE_BLOCK_QUOTE || open->type == CMARK_NODE_ITEM ||
-              open->type == CMARK_NODE_FOOTNOTE_DEFINITION || open->type == CMARK_NODE_DEFINITION_DESCRIPTION)
-            web_flow_boundary = true;
-        /* A newly opened container already starts an independent flow. */
-        if (!open) web_flow_boundary = false;
-      }
+      /* A newly opened container already starts an independent flow. */
+      bool one_line_flow = web_flow_boundary && *container == initial_container;
       S_advance_offset(parser, input, CODE_INDENT, true);
       *container = add_child(parser, *container, CMARK_NODE_CODE_BLOCK,
                              parser->offset + 1);
@@ -1917,7 +1928,7 @@ static void open_new_blocks(cmark_parser *parser, cmark_node **container,
         cmark_web_position_set_start(*container, parser->line_number, web_code_start);
       (*container)->definition.single_line = parser->definition_lazy_code;
       (*container)->as.code.fenced = false;
-      (*container)->as.code.web_single_line = web_flow_boundary;
+      (*container)->as.code.web_single_line = one_line_flow;
       if (parser->options & CMARK_OPT_CODE_METADATA) { cmark_code_metadata_start(*container, 2); (*container)->code_metadata->indented_qualified = true; }
       (*container)->as.code.fence_char = 0;
       (*container)->as.code.fence_length = 0;
