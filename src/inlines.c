@@ -2027,8 +2027,9 @@ static int parse_inline(cmark_parser *parser, subject *subj, cmark_node *parent,
     return 0;
   }
   // Web literal emails may start with punctuation owned by builtin parsers.
-  // These characters must not be registered as extension delimiters: doing so
+  // Underscore stays a builtin delimiter: registering it with the extension
   // would redirect emphasis resolution to an extension without an insert hook.
+  // Hyphen and period may be special scan stops without owning delimiters.
   if (c == '_' || c == '-' || c == '.') {
     for (cmark_llist *item = parser->inline_syntax_extensions; item; item = item->next) {
       cmark_syntax_extension *extension = (cmark_syntax_extension *)item->data;

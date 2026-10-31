@@ -7,6 +7,7 @@
 #include <references.h>
 #include <string.h>
 #include <render.h>
+#include <cmark_ctype.h>
 
 #include "ext_scanners.h"
 #include "strikethrough.h"
@@ -466,10 +467,70 @@ static void web_row_positions(cmark_node *row_node, const table_row *row,
     int end = i + 1 < row->n_columns ? web_cell_start(string, row, &row->cells[i + 1]) : line_end;
     cmark_web_position_set_start(cell, line, column + start);
     cmark_web_position_set_end(cell, line, column + end);
+    /* Inline subjects retain exact original bytes in Web mode. Give each
+     * subject its physical content anchor, including converted header rows. */
+    const node_cell *scanned = &row->cells[i];
+    int content = scanned->start_offset + scanned->internal_offset;
+    if (web_tables && content >= row->paragraph_offset && content <= line_end &&
+        scanned->buf->size <= line_end - content &&
+        memcmp(string + content, scanned->buf->ptr, scanned->buf->size) == 0) {
+      cell->math_lines = cmark_node_mem(cell)->calloc(1, sizeof(cmark_math_line));
+      cell->math_line_count = cell->math_line_capacity = 1;
+      cmark_math_line *record = cell->math_lines;
+      record->line = line;
+      record->column = column + content;
+      record->visual_column = cell->reference_visual_column > 0
+          ? cell->reference_visual_column : record->column;
+      record->prefix_visual_column = record->visual_column;
+    }
   }
 }
 
-static void try_inserting_table_header_paragraph(cmark_parser *parser,
+/* Transfer physical line records before changing the paragraph into a table.
+ * The retained paragraph has a trimmed subject but includes its original
+ * trailing spaces in the block endpoint, just like micromark's paragraph. */
+static void web_prefix_paragraph(cmark_node *paragraph, cmark_node *original,
+                                  const unsigned char *string, int length) {
+  int first = 0, last = length;
+  while (first < last && cmark_isspace(string[first])) first++;
+  while (last > first && cmark_isspace(string[last - 1])) last--;
+  if (!original->math_line_count || last == first ||
+      paragraph->content.size != last - first ||
+      memcmp(paragraph->content.ptr, string + first, last - first) != 0)
+    return;
+  paragraph->math_lines = cmark_node_mem(paragraph)->calloc(original->math_line_count,
+                                                      sizeof(cmark_math_line));
+  paragraph->math_line_capacity = original->math_line_count;
+  int physical_end = web_line_end(string, length);
+  const cmark_math_line *last_physical = NULL;
+  for (size_t i = 0; i < original->math_line_count; i++) {
+    const cmark_math_line *row = &original->math_lines[i];
+    if (row->offset < physical_end) last_physical = row;
+    int next = i + 1 < original->math_line_count
+        ? original->math_lines[i + 1].offset : length;
+    if (row->offset >= last || next <= first) continue;
+    int begin = row->offset > first ? row->offset : first;
+    cmark_math_line *copy = &paragraph->math_lines[paragraph->math_line_count++];
+    *copy = *row;
+    copy->offset = begin - first;
+    copy->column += begin - row->offset;
+    copy->visual_column = cmark_reference_column(row->visual_column,
+        string + row->offset, begin - row->offset);
+    copy->prefix = cmark_chunk_dup(&row->prefix, 0, row->prefix.len);
+    cmark_chunk_to_cstr(cmark_node_mem(paragraph), &copy->prefix);
+  }
+  if (paragraph->math_line_count && last_physical) {
+    const cmark_math_line *start = paragraph->math_lines;
+    paragraph->start_line = start->line;
+    paragraph->start_column = start->column;
+    paragraph->end_line = last_physical->line;
+    paragraph->end_column = last_physical->column + physical_end - last_physical->offset - 1;
+    cmark_web_position_set_start(paragraph, paragraph->start_line, paragraph->start_column);
+    cmark_web_position_set_end(paragraph, paragraph->end_line, paragraph->end_column + 1);
+  }
+}
+
+static cmark_node *try_inserting_table_header_paragraph(cmark_parser *parser,
                                                  cmark_node *parent_container,
                                                  unsigned char *parent_string,
                                                  int paragraph_offset) {
@@ -484,9 +545,13 @@ static void try_inserting_table_header_paragraph(cmark_parser *parser,
   cmark_strbuf_free(paragraph_content);
   parser->mem->free(paragraph_content);
 
+  if (parser->options & CMARK_OPT_WEB_POSITIONS)
+    web_prefix_paragraph(paragraph, parent_container, parent_string, paragraph_offset);
   if (!cmark_node_insert_before(parent_container, paragraph)) {
-    parser->mem->free(paragraph);
+    cmark_node_free(paragraph);
+    return NULL;
   }
+  return paragraph;
 }
 
 static cmark_node *try_opening_table_header(cmark_syntax_extension *self,
@@ -554,26 +619,28 @@ static cmark_node *try_opening_table_header(cmark_syntax_extension *self,
 
   /* The header row is the paragraph's last content line: resolve its physical
    * start before the type change releases the paragraph's line records. */
-  int web_header_line = 0, web_header_column = 0;
+  int web_header_line = 0, web_header_column = 0, web_header_visual_column = 0;
   if (parser->options & CMARK_OPT_WEB_POSITIONS) {
     for (size_t r = 0; r < parent_container->math_line_count; r++) {
       const cmark_math_line *row = &parent_container->math_lines[r];
       if (row->offset == header_row->paragraph_offset) {
         web_header_line = row->line;
         web_header_column = row->column - row->offset;
+        web_header_visual_column = row->visual_column;
       }
     }
   }
 
+  cmark_node *prefix = NULL;
+  if (header_row->paragraph_offset)
+    prefix = try_inserting_table_header_paragraph(parser, parent_container,
+        (unsigned char *)parent_string, header_row->paragraph_offset);
+
   if (!cmark_node_set_type(parent_container, CMARK_NODE_TABLE)) {
+    if (prefix) cmark_node_free(prefix);
     free_table_row(parser->mem, header_row);
     free_table_row(parser->mem, delimiter_row);
     return parent_container;
-  }
-
-  if (header_row->paragraph_offset) {
-    try_inserting_table_header_paragraph(parser, parent_container, (unsigned char *)parent_string,
-                                         header_row->paragraph_offset);
   }
 
   cmark_node_set_syntax_extension(parent_container, self);
@@ -608,7 +675,11 @@ static cmark_node *try_opening_table_header(cmark_syntax_extension *self,
   ntr->is_header = true;
 
   int reference_header_offset = 0;
-  int reference_header_column = parent_container->math_line_count ? parent_container->math_lines[0].visual_column : parent_container->start_column;
+  int reference_header_column = parent_container->start_column;
+  if (web_header_line) {
+    reference_header_offset = header_row->paragraph_offset;
+    reference_header_column = web_header_visual_column;
+  }
   for (i = 0; i < header_row->n_columns; ++i) {
     node_cell *cell = &header_row->cells[i];
     cmark_node *header_cell = cmark_parser_add_child(parser, table_header,

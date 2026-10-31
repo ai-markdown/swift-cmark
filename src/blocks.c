@@ -523,7 +523,18 @@ static cmark_node *finalize(cmark_parser *parser, cmark_node *b) {
     b->end_line = parser->line_number + 1;
     b->end_column = 0;
   }
+  if ((parser->options & CMARK_OPT_WEB_POSITIONS) &&
+      (b->type == CMARK_NODE_DEFINITION_LIST || b->type == CMARK_NODE_DEFINITION_DESCRIPTION))
+    cmark_web_position_set_start(b, b->start_line, b->start_column);
   cmark_strbuf *node_content = &b->content;
+
+  if (S_type(b) == CMARK_NODE_MATH_BLOCK && parser->curline.size == 0 &&
+      !b->math_closing_fence && b->math_container_eof_line == parser->line_number) {
+    /* No flow chunk starts after a final container-only prefix. Fence indent
+     * is deliberately excluded: it is consumed later by mathFlow itself. */
+    b->end_line = parser->line_number;
+    b->end_column = 0;
+  }
 
   if (S_type(b) == CMARK_NODE_MATH_BLOCK && parser->curline.size == 0 &&
       !b->math_closing_fence && parser->math_last_line_ending) {
@@ -1383,6 +1394,10 @@ static bufsize_t math_fence(cmark_chunk *input, bufsize_t start, bool closing) {
 
 static bool parse_math_prefix(cmark_parser *parser, cmark_chunk *input,
                               cmark_node *container, bool *should_continue) {
+  if (parser->definition_synthetic_ending && parser->math_current_ending == 0 &&
+      !parser->partially_consumed_tab && parser->offset > 0 &&
+      parser->offset == input->len - 1)
+    container->math_container_eof_line = parser->line_number;
   bufsize_t matched = parser->indent <= 3 ? math_fence(input, parser->first_nonspace, true) : 0;
   if (matched >= container->math_fence_length && matched > 0) {
     container->math_closing_fence = true; // finalize this line, not the previous line
@@ -1480,7 +1495,6 @@ static cmark_node *check_open_blocks(cmark_parser *parser, cmark_chunk *input,
       cmark_list_spread_prefix(parser, container);
       break;
     case CMARK_NODE_DEFINITION_DESCRIPTION:
-      cmark_list_spread_unsupported(parser);
       if (parser->blank) {
         container->definition.blank_lines++;
         S_advance_offset(parser, input, MIN(parser->indent, container->definition.padding), true);
@@ -1488,6 +1502,7 @@ static cmark_node *check_open_blocks(cmark_parser *parser, cmark_chunk *input,
         parser->definition_lazy_code = true;
         goto done;
       } else if (parser->indent >= container->definition.padding) {
+        parser->definition_prefix_size = container->definition.padding;
         S_advance_offset(parser, input, container->definition.padding, true);
         container->definition.blank_lines = 0;
         container->definition.initial_blank = false;
@@ -2005,6 +2020,35 @@ static void add_text_to_container(cmark_parser *parser, cmark_node *container,
 
 // Definition lists are document containers. Recognize markers while the
 // paragraph buffer and container continuation state are still available.
+static void definition_copy_line(cmark_parser *parser, cmark_node *target,
+                                  const cmark_math_line *source, bufsize_t offset) {
+  if (target->math_line_count == target->math_line_capacity) {
+    target->math_line_capacity = target->math_line_capacity ? target->math_line_capacity * 2 : 1;
+    target->math_lines = parser->mem->realloc(target->math_lines,
+        target->math_line_capacity * sizeof(cmark_math_line));
+  }
+  cmark_math_line *line = &target->math_lines[target->math_line_count++];
+  *line = *source;
+  line->offset -= offset;
+  line->prefix = cmark_chunk_dup((cmark_chunk *)&source->prefix, 0, source->prefix.len);
+  cmark_chunk_to_cstr(parser->mem, &line->prefix);
+}
+
+/* Definition resolution splits previously consumed paragraph chunks. Move
+ * their physical line mappings with the text instead of reconstructing columns
+ * after quote/definition prefixes have been discarded. */
+static void definition_move_tail(cmark_parser *parser, cmark_node *source,
+                                  cmark_node *target, bufsize_t offset) {
+  size_t kept = source->math_line_count;
+  for (size_t i = 0; i < source->math_line_count; i++) {
+    if (source->math_lines[i].offset < offset) continue;
+    if (kept == source->math_line_count) kept = i;
+    definition_copy_line(parser, target, &source->math_lines[i], offset);
+    cmark_chunk_free(parser->mem, &source->math_lines[i].prefix);
+  }
+  source->math_line_count = kept;
+}
+
 static bool S_open_definition(cmark_parser *parser, cmark_chunk *input,
                               cmark_node **matched) {
   if (!(parser->options & CMARK_OPT_DEFINITION_LISTS)) return false;
@@ -2012,9 +2056,6 @@ static bool S_open_definition(cmark_parser *parser, cmark_chunk *input,
   if (parser->indent >= 4 || peek_at(input, parser->first_nonspace) != ':' ||
       !(S_is_space_or_tab(peek_at(input, parser->first_nonspace + 1)) ||
         S_is_line_end_char(peek_at(input, parser->first_nonspace + 1)))) return false;
-  /* Definition-list markers can restructure surrounding flow in Web parsing;
-   * list spread is not derived for documents containing a marker candidate. */
-  cmark_list_spread_unsupported(parser);
   cmark_node *container = *matched;
   cmark_node *list = NULL;
   cmark_node *term = NULL;
@@ -2037,6 +2078,7 @@ static bool S_open_definition(cmark_parser *parser, cmark_chunk *input,
         term = make_block(parser->mem, CMARK_NODE_PARAGRAPH,
                           old->definition.lazy_line, old->definition.lazy_column);
         cmark_strbuf_put(&term->content, old->content.ptr + lazy_offset, old->content.size - lazy_offset);
+        definition_move_tail(parser, old, term, lazy_offset);
         cmark_strbuf_truncate(&old->content, lazy_offset);
         old->definition.hardbreak = true;
         int final_line = old->definition.lazy_line - 1;
@@ -2044,7 +2086,12 @@ static bool S_open_definition(cmark_parser *parser, cmark_chunk *input,
           cmark_node *closing = parser->current;
           cmark_node *closing_parent = closing->parent;
           parser->current = finalize(parser, closing);
-          if (closing_parent->last_child == closing) { closing->end_line = final_line + 1; closing->end_column = 0; }
+          if (closing_parent->last_child == closing) {
+            closing->end_line = final_line + 1;
+            closing->end_column = 0;
+            if (closing->type == CMARK_NODE_BLOCK_QUOTE)
+              cmark_list_spread_boundary(parser, closing);
+          }
         }
         cmark_node_append_child(container, term);
         term->definition.no_reference = true;
@@ -2074,6 +2121,7 @@ static bool S_open_definition(cmark_parser *parser, cmark_chunk *input,
         term = make_block(parser->mem, CMARK_NODE_PARAGRAPH, preceding->definition.flow_line,
                           preceding->definition.flow_column);
         cmark_strbuf_put(&term->content, preceding->content.ptr + offset, preceding->content.size - offset);
+        definition_move_tail(parser, preceding, term, offset);
         cmark_strbuf_truncate(&preceding->content, offset);
         preceding->definition.hardbreak = true;
         if (preceding->flags & CMARK_NODE__OPEN) finalize(parser, preceding);
@@ -2093,6 +2141,7 @@ static bool S_open_definition(cmark_parser *parser, cmark_chunk *input,
       if (list->last_child) {
         list->last_child->end_line = term->start_line;
         list->last_child->end_column = (term->definition.term_start_column > 0 ? term->definition.term_start_column : term->start_column) - 1;
+        cmark_list_spread_boundary(parser, list->last_child);
       }
       list->flags |= CMARK_NODE__OPEN;
     } else {
@@ -2106,6 +2155,7 @@ static bool S_open_definition(cmark_parser *parser, cmark_chunk *input,
     }
     // Each paragraph flow line is a separate term; inline parsing happens later.
     int line = term->start_line;
+    size_t term_line_index = 0;
     for (bufsize_t start = 0; !omit_term && start < term->content.size; ) {
       bufsize_t end = start;
       while (end < term->content.size && !S_is_line_end_char(term->content.ptr[end])) end++;
@@ -2133,8 +2183,13 @@ static bool S_open_definition(cmark_parser *parser, cmark_chunk *input,
         }
       }
       cmark_strbuf_put(&item->content, term->content.ptr + start, content_end - start);
+      while (term_line_index < term->math_line_count && term->math_lines[term_line_index].offset < start)
+        term_line_index++;
+      if (term_line_index < term->math_line_count && term->math_lines[term_line_index].offset == start)
+        definition_copy_line(parser, item, &term->math_lines[term_line_index++], start);
       item->end_line = line + 1;
       item->end_column = 0;
+      cmark_list_spread_boundary(parser, item);
       cmark_node_append_child(list, item);
       if (end < term->content.size && term->content.ptr[end] == '\r') end++;
       if (end < term->content.size && term->content.ptr[end] == '\n') end++;
@@ -2158,9 +2213,14 @@ static bool S_open_definition(cmark_parser *parser, cmark_chunk *input,
     S_advance_offset(parser, input, 1, true);
   }
   int padding = empty ? after_marker_column - initial_column + 1 : parser->column - initial_column;
+  /* micromark includes the immediately preceding definition linePrefix in
+   * the new container's size, even when it belongs to an outer description. */
+  if (list->parent && list->parent->type == CMARK_NODE_DEFINITION_DESCRIPTION)
+    padding += parser->definition_prefix_size;
   if (previous_description) {
     previous_description->end_line = parser->line_number;
     previous_description->end_column = empty ? after_marker_offset : parser->offset;
+    cmark_list_spread_boundary(parser, previous_description);
   }
   cmark_node *description = make_block(parser->mem, CMARK_NODE_DEFINITION_DESCRIPTION,
                                         parser->line_number, parser->offset + 1);
@@ -2217,6 +2277,7 @@ static void S_process_line(cmark_parser *parser, const unsigned char *buffer,
   parser->blank = false;
   parser->partially_consumed_tab = false;
   parser->definition_lazy_code = false;
+  parser->definition_prefix_size = 0;
 
   input.data = parser->curline.ptr;
   input.len = parser->curline.size;
@@ -2240,7 +2301,6 @@ static void S_process_line(cmark_parser *parser, const unsigned char *buffer,
   parser->definition_line_offset = parser->offset;
   if (S_open_definition(parser, &input, &last_matched_container)) {
     all_matched = true;
-    cmark_list_spread_unsupported(parser);
   }
   parser->definition_line_offset = parser->offset;
   container = last_matched_container;

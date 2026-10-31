@@ -51,6 +51,7 @@ struct cmark_parser {
   bool definition_lazy_code;
   bool definition_synthetic_ending;
   int definition_line_offset;
+  int definition_prefix_size; /* Last consumed definition linePrefix on this physical line. */
   /* Contains the currently processed line */
   cmark_strbuf curline;
   /* See the documentation for cmark_parser_get_last_line_length() in cmark.h */

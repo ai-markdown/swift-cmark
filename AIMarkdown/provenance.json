@@ -40,7 +40,40 @@
       "sourceFiles": [
         "packages/engine/package.json"
       ],
-      "description": "585 raw math EOF/container inputs from the pinned default remark parser, including the original 369 inputs and 216 real-EOL quote/fence/container controls. Whole and byte feeds compare exact values; physical quote EOF endpoints are checked separately. Original 5639 math-boundary frames additionally compare count and value.",
+      "description": "585 raw math EOF/container inputs from the pinned default remark parser, including the original 369 inputs and 216 real-EOL quote/fence/container controls. Whole and byte feeds compare exact values and both source endpoints for every actual math node. Original 5639 math-boundary frames additionally compare count and value.",
+      "license": "MIT; AIMarkdown/ThirdPartyLicenses/ai-markdown/LICENSE-ai-markdown"
+    },
+    {
+      "file": "api_test/fixtures/definition_ledger_cases.inc",
+      "sourceRepository": "https://github.com/ai-markdown/ai-markdown.git",
+      "sourceRevision": "e9ec1799fdc380d99ce0a6313023515895bbd7bf",
+      "sourceFiles": [
+        "packages/engine/package.json"
+      ],
+      "description": "428 existing DefinitionList/DefinitionListStress inputs and 180 raw Web controls for nested definitions, list and item spread, quote relocation, term source rows, Unicode, tabs, EOF and physical line endings. One virtual-tab term text position remains explicitly unknown; its actual Web coordinates are retained.",
+      "license": "MIT; AIMarkdown/ThirdPartyLicenses/ai-markdown/LICENSE-ai-markdown"
+    },
+    {
+      "file": "api_test/web_table_prefix.c; api_test/fixtures/table_prefix_cases.inc",
+      "sourceRepository": "https://github.com/ai-markdown/ai-markdown.git",
+      "sourceRevision": "e9ec1799fdc380d99ce0a6313023515895bbd7bf",
+      "sourceFiles": [
+        "packages/engine/package.json"
+      ],
+      "sourceBundleSHA256": "625ade16a17465f7f7854676cdfb0c2e69958b4c84072b7d587ab281d45de8c7",
+      "fixtureSHA256": "24afc155b28acce6f9bfd59ffac39ef7075034a2521f9233f9f316a9eb591722",
+      "description": "288 actual raw Web inputs: paragraph-to-table conversion in root, quote, list and footnote containers, LF/CRLF/CR, code/math/emphasis/Unicode prefixes and header link/code nodes. Selected complete node structure, literal values and all source endpoints are checked with whole and byte feeds.",
+      "license": "MIT; AIMarkdown/ThirdPartyLicenses/ai-markdown/LICENSE-ai-markdown"
+    },
+    {
+      "file": "api_test/web_autolink_closeout.c",
+      "sourceRepository": "https://github.com/ai-markdown/ai-markdown.git",
+      "sourceRevision": "e9ec1799fdc380d99ce0a6313023515895bbd7bf",
+      "sourceFiles": [
+        "packages/engine/package.json"
+      ],
+      "sourceBundleSHA256": "625ade16a17465f7f7854676cdfb0c2e69958b4c84072b7d587ab281d45de8c7",
+      "description": "277 pinned Web autolink inputs: punctuation-start literal emails and matched Link/Text subject spans, physical table/container rows, both Web-position modes and underscore attention isolation.",
       "license": "MIT; AIMarkdown/ThirdPartyLicenses/ai-markdown/LICENSE-ai-markdown"
     }
   ],
@@ -157,6 +190,15 @@
       "sourceSHA256": "45aac9771cc150aa2e3b62ae12fc370c07b72732d84e847b47e09dd17b3a7bfe",
       "description": "Web escape-state rules used to implement an opt-in C scanner; actual table row structure and positions checked against the pinned Web pipeline.",
       "license": "MIT; AIMarkdown/ThirdPartyLicenses/table-code-metadata/LICENSE-micromark-extension-gfm-table"
+    },
+    {
+      "file": "src/blocks.c:S_open_definition; src/list_spread.c",
+      "package": "micromark-extension-definition-list",
+      "version": "2.0.1",
+      "sourceFile": "lib/syntax.js",
+      "sourceSHA256": "fdb5fc71aa915c57edcb9d71f00ea60d930f4e331324b11f76a231ce5ed8d106",
+      "description": "Definition container linePrefix sizes, opaque exit boundaries and physical term flow chunks, integrated with the existing opt-in list-spread event ledger.",
+      "license": "MIT; AIMarkdown/ThirdPartyLicenses/definition-list/LICENSE-micromark-extension-definition-list"
     }
   ]
 }

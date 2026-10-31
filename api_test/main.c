@@ -1659,7 +1659,7 @@ static void math_container_eof(test_batch_runner *runner) {
   static const struct {
     const char *id, *source, *value, *meta;
     bool has_math, check_end;
-    int end_line, end_column;
+    int end_line, end_column, start_line, start_column;
   } cases[] = {
 #include "fixtures/math_eof_cases.inc"
   };
@@ -1685,6 +1685,8 @@ static void math_container_eof(test_batch_runner *runner) {
         STR_EQ(runner, cmark_node_get_literal(node), cases[c].value, "math EOF value %s/%d", cases[c].id, chunked);
         STR_EQ(runner, cmark_node_get_fence_info(node), cases[c].meta, "math EOF meta %s/%d", cases[c].id, chunked);
         if (cases[c].check_end) {
+          INT_EQ(runner, node->start_line, cases[c].start_line, "math EOF source start line");
+          INT_EQ(runner, node->start_column, cases[c].start_column, "math EOF source start column");
           INT_EQ(runner, node->end_line, cases[c].end_line, "math whitespace EOF end line");
           INT_EQ(runner, node->end_column, cases[c].end_column, "math whitespace EOF end column");
         }
@@ -1700,6 +1702,114 @@ static void math_container_eof(test_batch_runner *runner) {
       OK(runner, cmark_iter_get_node(iter)->type != CMARK_NODE_MATH_BLOCK, "math remains opt-in");
     cmark_iter_free(iter);
     cmark_node_free(legacy);
+  }
+}
+
+typedef struct {
+  cmark_node_type type;
+  int spread, position_mask, start_line, start_column, end_line, end_column;
+} definition_ledger_event;
+
+static bool definition_ledger_node(cmark_node *node) {
+  switch (node->type) {
+  case CMARK_NODE_DEFINITION_LIST:
+  case CMARK_NODE_DEFINITION_TERM:
+  case CMARK_NODE_DEFINITION_DESCRIPTION:
+  case CMARK_NODE_LIST:
+  case CMARK_NODE_ITEM:
+  case CMARK_NODE_BLOCK_QUOTE:
+  case CMARK_NODE_FOOTNOTE_DEFINITION:
+    return true;
+  case CMARK_NODE_TEXT:
+    for (cmark_node *parent = node->parent; parent; parent = parent->parent) {
+      if (parent->type == CMARK_NODE_IMAGE) return false; /* mdast stores image alt as a field. */
+      if (parent->type == CMARK_NODE_DEFINITION_TERM) return true;
+    }
+    return false;
+  default: return false;
+  }
+}
+
+static const struct {
+  const char *id, *source;
+  const definition_ledger_event *events;
+  size_t count;
+} definition_ledger_cases[] = {
+#include "fixtures/definition_ledger_cases.inc"
+};
+
+static void definition_container_ledger(test_batch_runner *runner) {
+  int flags = CMARK_OPT_DEFINITION_LISTS | CMARK_OPT_WEB_POSITIONS |
+      CMARK_OPT_LIST_SPREAD_METADATA | CMARK_OPT_FOOTNOTES |
+      CMARK_OPT_FOOTNOTES_LOSSLESS | CMARK_OPT_REFERENCE_USAGES |
+      CMARK_OPT_WEB_CHARACTER_REFERENCES | CMARK_OPT_WEB_TABLES |
+      CMARK_OPT_MATH | CMARK_OPT_CODE_METADATA | CMARK_OPT_SOFTBREAK_METADATA |
+      CMARK_OPT_WEB_EMPHASIS;
+  cmark_gfm_core_extensions_ensure_registered();
+  for (size_t c = 0; c < sizeof(definition_ledger_cases) / sizeof(definition_ledger_cases[0]); c++) {
+    for (int chunked = 0; chunked <= 1; chunked++) {
+      cmark_parser *parser = cmark_parser_new(flags);
+      cmark_parser_attach_syntax_extension(parser, cmark_find_syntax_extension("table"));
+      cmark_parser_attach_syntax_extension(parser, cmark_find_syntax_extension("tasklist"));
+      cmark_parser_attach_syntax_extension(parser, cmark_find_syntax_extension("highlight"));
+      size_t length = strlen(definition_ledger_cases[c].source);
+      if (chunked) {
+        for (size_t i = 0; i < length; i++) cmark_parser_feed(parser, definition_ledger_cases[c].source + i, 1);
+      } else cmark_parser_feed(parser, definition_ledger_cases[c].source, length);
+      cmark_node *document = cmark_parser_finish(parser);
+      cmark_iter *iter = cmark_iter_new(document);
+      cmark_event_type event;
+      size_t count = 0;
+      while ((event = cmark_iter_next(iter)) != CMARK_EVENT_DONE) {
+        cmark_node *node = cmark_iter_get_node(iter);
+        if (event != CMARK_EVENT_ENTER || !definition_ledger_node(node)) continue;
+        if (count < definition_ledger_cases[c].count) {
+          const definition_ledger_event *expected = &definition_ledger_cases[c].events[count];
+          int sl = 0, sc = 0, el = 0, ec = 0;
+          INT_EQ(runner, node->type, expected->type, "definition ledger node %s/%d/%zu", definition_ledger_cases[c].id, chunked, count);
+          INT_EQ(runner, cmark_node_get_web_position(node, &sl, &sc, &el, &ec), expected->position_mask, "definition ledger source event %s", definition_ledger_cases[c].id);
+          if (expected->position_mask) {
+            INT_EQ(runner, sl, expected->start_line, "definition ledger start line %s", definition_ledger_cases[c].id);
+            INT_EQ(runner, sc, expected->start_column, "definition ledger start column %s", definition_ledger_cases[c].id);
+            INT_EQ(runner, el, expected->end_line, "definition ledger end line %s", definition_ledger_cases[c].id);
+            INT_EQ(runner, ec, expected->end_column, "definition ledger end column %s", definition_ledger_cases[c].id);
+          }
+          if (node->type == CMARK_NODE_LIST || node->type == CMARK_NODE_ITEM)
+            INT_EQ(runner, node->list_spread, expected->spread, "definition list/item spread %s", definition_ledger_cases[c].id);
+          if (node->type == CMARK_NODE_DEFINITION_DESCRIPTION)
+            INT_EQ(runner, node->definition.spread + 1, expected->spread, "definition description spread %s", definition_ledger_cases[c].id);
+        }
+        count++;
+      }
+      INT_EQ(runner, count, definition_ledger_cases[c].count, "definition ledger node count %s/%d", definition_ledger_cases[c].id, chunked);
+      cmark_iter_free(iter);
+      cmark_node_free(document);
+      cmark_parser_free(parser);
+    }
+  }
+  /* Definition syntax and the two metadata options remain independent. */
+  const char *source = "- a\n\n- b\n\nterm\n: value";
+  for (int mode = 0; mode < 4; mode++) {
+    int options = CMARK_OPT_DEFINITION_LISTS |
+        ((mode & 1) ? CMARK_OPT_LIST_SPREAD_METADATA : 0) |
+        ((mode & 2) ? CMARK_OPT_WEB_POSITIONS : 0);
+    cmark_node *document = cmark_parse_document(source, strlen(source), options);
+    cmark_iter *iter = cmark_iter_new(document);
+    cmark_event_type event;
+    while ((event = cmark_iter_next(iter)) != CMARK_EVENT_DONE) {
+      cmark_node *node = cmark_iter_get_node(iter);
+      if (event != CMARK_EVENT_ENTER) continue;
+      if (!(mode & 2)) {
+        int sl = 0, sc = 0, el = 0, ec = 0;
+        INT_EQ(runner, cmark_node_get_web_position(node, &sl, &sc, &el, &ec), 0, "definition Web positions remain opt-in");
+      }
+      if (node->type == CMARK_NODE_LIST)
+        INT_EQ(runner, node->list_spread, (mode & 1) ? 2 : 0, "definition list spread remains opt-in");
+      if (node->type == CMARK_NODE_ITEM)
+        INT_EQ(runner, node->list_spread, (mode & 1) ? 1 : 0, "definition item spread remains opt-in");
+    }
+    cmark_iter_free(iter);
+    cmark_node_free(document);
   }
 }
 
@@ -1808,6 +1918,7 @@ int main() {
   table_spans(runner);
   math_container_boundary(runner);
   math_container_eof(runner);
+  definition_container_ledger(runner);
   task_and_code_boundaries(runner);
 
   test_print_summary(runner);

@@ -152,6 +152,7 @@ struct cmark_node {
    * line ending outside mathFlow. Zero when no such line was consumed. */
   int math_quote_line, math_quote_column;
   bool math_quote_prefix_only;
+  int math_container_eof_line; /* Only actual container prefixes remained at EOF. */
   cmark_math_line *math_lines;
   size_t math_line_count, math_line_capacity;
 
@@ -247,6 +248,7 @@ void cmark_list_spread_line(struct cmark_parser *parser);
 void cmark_list_spread_prefix(struct cmark_parser *parser, cmark_node *container);
 void cmark_list_spread_open(struct cmark_parser *parser, cmark_node *container);
 void cmark_list_spread_close(struct cmark_parser *parser, cmark_node *container);
+void cmark_list_spread_boundary(struct cmark_parser *parser, cmark_node *container);
 void cmark_list_spread_leaf(struct cmark_parser *parser, cmark_node *leaf, bool closed);
 void cmark_list_spread_prefix_only(struct cmark_parser *parser, bool prefix_only);
 void cmark_list_spread_end_line(struct cmark_parser *parser, bool has_line_ending, int content_length);
